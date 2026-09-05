@@ -33,6 +33,9 @@ func (s *Service) ReviewButtons(ctx context.Context, l store.Log) (any, error) {
 	return map[string]any{"inline_keyboard": [][]map[string]string{row}}, nil
 }
 func (s *Service) Callback(ctx context.Context, c domain.Callback) error {
+	if strings.HasPrefix(c.Data, "menu:") {
+		return s.MenuCallback(ctx, c)
+	}
 	if c.Message == nil {
 		return nil
 	}

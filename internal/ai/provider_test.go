@@ -3,16 +3,47 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"tgguard/internal/state"
 	"time"
 
 	"tgguard/internal/domain"
 )
 
 const valid = `{"is_ad":true,"confidence":0.9,"category":"promotion","severity":"high","reason":"包含推广招揽","recommended_action":"delete"}`
+
+func TestConnectionBypassesCachedSuccess(t *testing.T) {
+	m := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: m.Addr()})
+	defer rdb.Close()
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Header.Get("Authorization") != "Bearer good" {
+			w.WriteHeader(401)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]any{"content": valid}}}})
+	}))
+	defer srv.Close()
+	p := &Compatible{BaseURL: srv.URL, Key: "good", Model: "model", Timeout: time.Second, HTTP: srv.Client(), State: &state.State{R: rdb}, Slots: make(chan struct{}, 1)}
+	if _, err := p.Review(context.Background(), domain.Normalized{}, domain.Risk{}); err != nil {
+		t.Fatal(err)
+	}
+	p.Key = "bad"
+	p.BypassCache = true
+	if _, err := p.Review(context.Background(), domain.Normalized{}, domain.Risk{}); err == nil {
+		t.Fatal("connection test accepted cached success with invalid credentials")
+	}
+	if calls != 2 {
+		t.Fatalf("expected two real requests, got %d", calls)
+	}
+}
 
 func TestDecodeResultStrict(t *testing.T) {
 	if _, e := DecodeResult(valid); e != nil {

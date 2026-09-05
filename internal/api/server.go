@@ -27,12 +27,22 @@ type Server struct {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", s.panel)
+	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(panelAssets))))
+	mux.HandleFunc("POST /auth/login", s.withAuthTimeout(s.login))
+	mux.HandleFunc("POST /auth/ticket", s.withAuthTimeout(s.exchangeTicket))
+	mux.HandleFunc("GET /auth/session", s.withAuthTimeout(s.sessionInfo))
+	mux.HandleFunc("POST /auth/logout", s.withAuthTimeout(s.logout))
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, r *http.Request) { respond(w, 200, map[string]string{"status": "ok"}) })
 	mux.HandleFunc("GET /health/ready", s.ready)
 	if s.Config.Mode == "webhook" {
 		mux.HandleFunc("POST /telegram/webhook", s.webhook)
 	}
 	admin := http.NewServeMux()
+	admin.HandleFunc("POST /api/v1/panel-ticket", s.ticket)
+	admin.HandleFunc("GET /api/v1/system", s.system)
+	admin.HandleFunc("PUT /api/v1/system", s.system)
+	admin.HandleFunc("POST /api/v1/system/test-ai", s.testAI)
 	admin.HandleFunc("GET /api/v1/dashboard", s.dashboard)
 	admin.HandleFunc("GET /api/v1/groups", s.groups)
 	admin.HandleFunc("GET /api/v1/groups/{chat}/settings", s.settings)
@@ -55,7 +65,8 @@ func (s *Server) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		w.Header().Set("Referrer-Policy", "no-referrer")
 		mux.ServeHTTP(w, r)
 	})
 }
@@ -65,7 +76,11 @@ func SecretEqual(a, b string) bool {
 }
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		timeout := 10 * time.Second
+		if r.URL.Path == "/api/v1/system/test-ai" {
+			timeout = 35 * time.Second
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		defer cancel()
 		r = r.WithContext(ctx)
 		if s.Service.State != nil {
@@ -83,12 +98,13 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				return
 			}
 		}
-		if !SecretEqual(r.Header.Get("Authorization"), "Bearer "+s.Config.AdminToken) || len(s.Config.AdminToken) < 32 {
+		bearer := len(s.Config.AdminToken) >= 32 && SecretEqual(r.Header.Get("Authorization"), "Bearer "+s.Config.AdminToken)
+		session, _, sessionOK := s.session(r)
+		if !bearer && !sessionOK {
 			respond(w, 401, map[string]string{"error": "unauthorized"})
 			return
 		}
-		// API uses explicit bearer credentials, never cookies. Cross-origin writes are rejected.
-		if r.Method != "GET" && r.Header.Get("Origin") != "" {
+		if r.Method != "GET" && (!s.validOrigin(r) || (!bearer && !SecretEqual(r.Header.Get("X-CSRF-Token"), session.CSRF))) {
 			respond(w, 403, map[string]string{"error": "cross-origin writes forbidden"})
 			return
 		}

@@ -27,6 +27,9 @@ type Compatible struct {
 	State               *state.State
 	Store               *store.Store
 	Slots               chan struct{}
+	MaxTokens           int
+	TokenParameter      string
+	BypassCache         bool
 }
 
 func (p *Compatible) Review(ctx context.Context, n domain.Normalized, r domain.Risk) (result domain.AIResult, err error) {
@@ -61,7 +64,7 @@ func (p *Compatible) Review(ctx context.Context, n domain.Normalized, r domain.R
 			}
 		}
 	}()
-	if p.State != nil && p.State.Get(ctx, cacheKey, &result) == nil && result.Validate() == nil {
+	if !p.BypassCache && p.State != nil && p.State.Get(ctx, cacheKey, &result) == nil && result.Validate() == nil {
 		cached = true
 		return result, nil
 	}
@@ -72,7 +75,7 @@ func (p *Compatible) Review(ctx context.Context, n domain.Normalized, r domain.R
 		return result, ctx.Err()
 	}
 	if p.State != nil {
-		if p.State.Get(ctx, cacheKey, &result) == nil && result.Validate() == nil {
+		if !p.BypassCache && p.State.Get(ctx, cacheKey, &result) == nil && result.Validate() == nil {
 			cached = true
 			return result, nil
 		}
@@ -84,7 +87,15 @@ func (p *Compatible) Review(ctx context.Context, n domain.Normalized, r domain.R
 			return result, errors.New("group AI rate limit exceeded")
 		}
 	}
-	body := map[string]any{"model": p.Model, "response_format": map[string]string{"type": "json_object"}, "max_completion_tokens": 500, "messages": []map[string]string{{"role": "system", "content": systemPrompt}, {"role": "user", "content": text}}}
+	maxTokens := p.MaxTokens
+	if maxTokens == 0 {
+		maxTokens = 500
+	}
+	parameter := p.TokenParameter
+	if parameter == "" {
+		parameter = "max_completion_tokens"
+	}
+	body := map[string]any{"model": p.Model, "response_format": map[string]string{"type": "json_object"}, parameter: maxTokens, "messages": []map[string]string{{"role": "system", "content": systemPrompt}, {"role": "user", "content": text}}}
 	b, e := json.Marshal(body)
 	if e != nil {
 		return result, e
@@ -128,7 +139,7 @@ func (p *Compatible) Review(ctx context.Context, n domain.Normalized, r domain.R
 	if e != nil {
 		return result, e
 	}
-	if p.State != nil {
+	if p.State != nil && !p.BypassCache {
 		if e = p.State.Put(ctx, cacheKey, result, 24*time.Hour); e != nil {
 			slog.Warn("AI cache write failed", "error", e)
 		}

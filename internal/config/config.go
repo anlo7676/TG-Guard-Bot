@@ -17,6 +17,7 @@ type Config struct {
 	AITimeout                                            time.Duration
 	Workers, AIConcurrency                               int
 	SuperAdmins                                          map[int64]bool
+	SettingsKey                                          string
 }
 
 func Load() (Config, error) {
@@ -29,6 +30,10 @@ func Load() (Config, error) {
 	}
 	if len(c.AdminToken) < 32 {
 		return c, errors.New("ADMIN_API_TOKEN must have at least 32 characters")
+	}
+	c.SettingsKey = env("SETTINGS_ENCRYPTION_KEY", c.AdminToken)
+	if len(c.SettingsKey) < 32 {
+		return c, errors.New("SETTINGS_ENCRYPTION_KEY must have at least 32 characters")
 	}
 	if c.Mode != "polling" && c.Mode != "webhook" {
 		return c, errors.New("BOT_MODE must be polling or webhook")

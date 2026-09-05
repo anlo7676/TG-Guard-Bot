@@ -18,6 +18,7 @@ import (
 	"tgguard/internal/bot"
 	"tgguard/internal/config"
 	"tgguard/internal/service"
+	"tgguard/internal/settings"
 	"tgguard/internal/state"
 	"tgguard/internal/store"
 	"tgguard/internal/telegram"
@@ -62,11 +63,19 @@ func run() error {
 	if e = tg.Identify(startup); e != nil {
 		return e
 	}
-	provider := &ai.Compatible{BaseURL: c.AIBaseURL, Key: c.AIKey, Model: c.AIModel, Timeout: c.AITimeout, HTTP: &http.Client{Timeout: c.AITimeout, CheckRedirect: func(r *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }}, State: cache, Store: db, Slots: make(chan struct{}, c.AIConcurrency)}
-	svc := &service.Service{Store: db, State: cache, Bot: tg, AI: provider, SuperAdmins: c.SuperAdmins}
+	ids := []int64{}
+	for id := range c.SuperAdmins {
+		ids = append(ids, id)
+	}
+	runtime, e := settings.New(startup, db, c.SettingsKey, settings.Config{SuperAdmins: ids, AI: settings.AI{Enabled: c.AIKey != "", BaseURL: c.AIBaseURL, Model: c.AIModel, APIKey: c.AIKey, TimeoutSeconds: int(c.AITimeout.Seconds()), MaxTokens: 500, TokenParameter: "max_completion_tokens"}})
+	if e != nil {
+		return e
+	}
+	provider := &ai.Live{Settings: runtime, State: cache, Store: db, Slots: make(chan struct{}, c.AIConcurrency)}
+	svc := &service.Service{Store: db, State: cache, Bot: tg, AI: provider, SuperAdmins: c.SuperAdmins, Runtime: runtime}
 	handler := &bot.Handler{Service: svc}
 	web := &api.Server{Service: svc, Config: c}
-	server := &http.Server{Addr: c.HTTPAddr, Handler: web.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
+	server := &http.Server{Addr: c.HTTPAddr, Handler: web.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 45 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
 	// One process owns ingestion and recovery. Workers inside it process different chats concurrently.
 	leaseConn, e := db.DB.Conn(ctx)
 	if e != nil {
@@ -81,6 +90,9 @@ func run() error {
 		return errors.New("another TG Guard instance is running; stop it before starting this instance")
 	}
 	defer leaseConn.ExecContext(context.Background(), "SELECT RELEASE_LOCK('tg_guard_single_instance')")
+	if e = svc.RegisterMenus(startup); e != nil {
+		return e
+	}
 	if c.Mode == "polling" {
 		e = tg.Call(startup, "deleteWebhook", map[string]any{"drop_pending_updates": false}, nil)
 	} else {

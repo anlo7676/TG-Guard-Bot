@@ -1,6 +1,6 @@
 # 管理 API
 
-所有管理路由前缀为 `/api/v1`，需 `Authorization: Bearer <ADMIN_API_TOKEN>`。此凭据具有全局管理权限，不能嵌入公开前端。以 HTTPS 反向代理发布远程接口。
+所有管理路由前缀为 `/api/v1`，接受 `Authorization: Bearer <ADMIN_API_TOKEN>` 或 Web 登录会话（写操作需要 `X-CSRF-Token`）。此凭据具有全局管理权限，不能嵌入公开前端。以 HTTPS 反向代理发布远程接口。
 
 写入请求使用 `Content-Type: application/json`，最大 64 KiB；未知字段和尾随第二个 JSON 值返回 400。凭据错误返回 401，跨 Origin 写入返回 403，资源不存在返回 404，超出每客户端 IP 每分钟 120 次返回 429。服务不信任 `X-Forwarded-For`；反向代理下默认按代理 IP 共享限制。
 
@@ -24,7 +24,19 @@
 
 `chat` 必须为负数 Telegram 超级群 ID；只有名单接口允许 `chat=0` 表示全局名单。通用列表上限 100，可用 `?before=上一页最小ID` 翻页；群列表用 `chat_id`，用户列表用 `user_id`，死信用 `update_id`。关键词列表返回该群全部规则，验证列表仅最近 100 条。列表中的 MySQL JSON 列以 JSON 字符串返回，前端按需解析；群设置和关键词是结构化 JSON。
 
-不存在独立 `/rules` 写接口：使用群设置的 `rules` 对象修改规则；AI Provider 连接信息仅由环境配置注入。
+不存在独立 `/rules` 写接口：使用群设置的 `rules` 对象修改规则；AI Provider 连接信息通过 `/system` 配置并加密持久化。
+
+## 系统设置和 Web 会话
+
+- `GET /api/v1/system`：机器人身份和脱敏设置，Key 仅返回 `key_configured`。
+- `PUT /api/v1/system`：完整保存 `super_admins`（数字 ID 数组）、`panel_url`、`ai`。AI 字段为 `enabled`、`base_url`、`model`、`api_key`、`timeout_seconds`、`max_tokens`、`token_parameter`。空 Key 保留，顶层 `clear_key=true` 显式清除，保存立即生效。
+- `POST /api/v1/system/test-ai`：测试已保存连接，不使用缓存，会产生实际模型用量。
+- `POST /auth/login`：JSON `{"token":"管理凭据"}`，成功设置 HttpOnly、SameSite=Strict Cookie，并返回 `csrf`，会话有效 8 小时。
+- `GET /auth/session`：返回当前会话的 CSRF Token。
+- `POST /auth/logout`：要求 Cookie 和 `X-CSRF-Token`，撤销会话。
+- `POST /api/v1/panel-ticket`：已鉴权部署者获取 60 秒一次性票据；`POST /auth/ticket` 用 `{"ticket":"票据"}` 消费并建立会话。
+
+首页和静态资源公开可读，业务数据需要鉴权。登录每 IP 每 5 分钟最多 10 次；写操作拒绝跨 Origin。前端不在 localStorage 保存管理凭据。HTTPS 反向代理需保留 Host，并设置匹配的 HTTPS `panel_url`。
 
 ## 更新群设置
 

@@ -9,6 +9,7 @@ import (
 	"tgguard/internal/ai"
 	"tgguard/internal/domain"
 	"tgguard/internal/i18n"
+	"tgguard/internal/settings"
 	"tgguard/internal/state"
 	"tgguard/internal/store"
 	"tgguard/internal/telegram"
@@ -20,17 +21,25 @@ type Service struct {
 	Bot         *telegram.Client
 	AI          ai.Provider
 	SuperAdmins map[int64]bool
+	Runtime     *settings.Manager
+}
+
+func (s *Service) IsSuperAdmin(id int64) bool {
+	if s.Runtime != nil {
+		return s.Runtime.IsAdmin(id)
+	}
+	return s.SuperAdmins[id]
 }
 
 func (s *Service) Admin(ctx context.Context, chat, user int64) (bool, error) {
-	if s.SuperAdmins[user] {
+	if s.IsSuperAdmin(user) {
 		return true, nil
 	}
 	m, e := s.Bot.Member(ctx, chat, user)
 	return m.Admin(), e
 }
 func (s *Service) Protected(ctx context.Context, chat int64, u domain.User) (bool, error) {
-	if u.IsBot || u.ID == s.Bot.ID || s.SuperAdmins[u.ID] {
+	if u.IsBot || u.ID == s.Bot.ID || s.IsSuperAdmin(u.ID) {
 		return true, nil
 	}
 	m, e := s.Bot.Member(ctx, chat, u.ID)
@@ -46,7 +55,7 @@ func (s *Service) Protected(ctx context.Context, chat int64, u domain.User) (boo
 
 // Cache is only for the analysis pipeline. Every punishment rechecks live permissions.
 func (s *Service) ModerationProtected(ctx context.Context, chat int64, u domain.User) (bool, error) {
-	if u.IsBot || u.ID == s.Bot.ID || s.SuperAdmins[u.ID] {
+	if u.IsBot || u.ID == s.Bot.ID || s.IsSuperAdmin(u.ID) {
 		return true, nil
 	}
 	key := fmt.Sprintf("group:admins:%d", chat)

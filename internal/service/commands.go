@@ -33,6 +33,20 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 		return s.StartVerification(ctx, m, strings.TrimPrefix(arg, "verify_"))
 	}
 	lang := "zh_CN"
+	if m.Chat.Type == "private" {
+		switch command {
+		case "start", "menu":
+			return s.Home(ctx, m)
+		case "help":
+			return s.PrivateSection(ctx, m, "help")
+		case "panel", "settings":
+			return s.PrivateSection(ctx, m, "panel")
+		case "admins":
+			return s.PrivateSection(ctx, m, "admins")
+		case "ai":
+			return s.PrivateSection(ctx, m, "ai")
+		}
+	}
 	switch command {
 	case "help", "start":
 		return s.Say(ctx, m.Chat.ID, lang, "help")

@@ -2,7 +2,7 @@
 
 基于 **Go 1.26.2 + MySQL 8.4 + Redis 8.6.2** 的 Telegram 智能群管机器人。以需求说明书第六十章的第一版 MVP 为交付范围，遵循“规则优先、AI 辅助、人工可干预”。
 
-本版包含机器人、管理 API、数据库迁移、Docker Compose、测试和 CI 配置。可视化 Web 后台、图片／网页 CAPTCHA、OCR／二维码识别、计费及 SaaS 多租户属于后续阶段，未实现。
+本版包含机器人、中文可视化 Web 后台、管理 API、数据库迁移、Docker Compose、测试和 CI 配置。图片／网页 CAPTCHA、OCR／二维码识别、计费及 SaaS 多租户属于后续阶段。
 
 ## 已实现
 
@@ -66,7 +66,9 @@ Go 可执行程序本身只读环境变量；自动读取 `.env` 的入口是 Po
 
 ### 配置 AI
 
-填写 `AI_BASE_URL`（包含 `/v1`）、`AI_API_KEY`、`AI_MODEL`；模型需支持 Chat Completions、`response_format=json_object` 和 `max_completion_tokens`。具体模型由部署者选择，不绑定供应商。
+打开 `http://127.0.0.1:8080`，使用 `.env` 的 `ADMIN_API_TOKEN` 登录，或运行 `scripts/open-panel.ps1` 一次性登录。私聊 `/start` 或 `/menu` 显示按钮菜单，`/id` 查询自己的数字 ID；在后台「机器人管理员」填写并保存 ID，立即获得跨群机器人命令权限。Telegram 群管理员仍在群设置中任命，Web 登录仍使用部署者凭据。
+
+后台「AI 接口」填写 Base URL（通常包含 `/v1`）、API Key、模型 ID，启用后保存；模型需支持 Chat Completions 和 `response_format=json_object`。输出限制参数可选择 `max_completion_tokens` 或 `max_tokens`。点击「测试已保存的连接」会产生一次实际模型请求。也可用环境变量提供首次默认配置。
 
 再由群管理员发送：
 
@@ -74,7 +76,7 @@ Go 可执行程序本身只读环境变量；自动读取 `.env` 的入口是 Po
 /settings {"ai_enabled":true}
 ```
 
-AI 默认关闭。只填写服务端 API Key 不会自动启用各群的 AI。未配置或超时的 AI 不会触发基于 AI 的处罚；明确本地高风险规则和 Spam 仍按群策略处理。密钥只由服务端环境注入，不写入数据库，也不通过管理 API 返回。
+也可在后台「群管理」启用目标群的 AI。AI 默认关闭，填写 API Key 不会自动启用各群。未配置或超时的 AI 不会触发基于 AI 的处罚；明确本地高风险规则和 Spam 仍按群策略处理。后台配置立即生效且重启保留，保存后以数据库配置为准。API Key 使用 AES-GCM 加密保存，不在响应或审计中回显；空 Key 保留原值，清除需显式勾选。备份时同时保存 `SETTINGS_ENCRYPTION_KEY`；未设置时从 `ADMIN_API_TOKEN` 派生，此时更换管理凭据会导致旧配置无法解密。
 
 ## 常用命令
 
@@ -119,7 +121,7 @@ $headers = @{ Authorization = "Bearer $env:ADMIN_API_TOKEN" }
 Invoke-RestMethod http://127.0.0.1:8080/api/v1/groups -Headers $headers
 ```
 
-API 使用服务端超级管理员 Bearer Token，`actor_id=0` 表示该管理凭据的操作；当前不提供多管理员登录、Cookie Session 或按群 Web 账号。所有 `/api/v1/` 请求均需鉴权、限流；不启用 CORS，不接受跨 Origin 写入。
+API 支持 Bearer Token 和 HttpOnly Cookie 会话，Cookie 写操作需要 CSRF Token。`actor_id=0` 表示部署者操作；当前不提供独立多管理员 Web 账号或按群 Web 授权。所有 `/api/v1/` 请求均需鉴权、限流；不启用 CORS，不接受跨 Origin 写入。默认仅本机访问，手机远程使用需部署 HTTPS 反向代理。
 
 接口和请求示例见 [docs/api.md](docs/api.md)。部署与故障恢复见 [docs/operations.md](docs/operations.md)，架构与后续范围见 [docs/architecture.md](docs/architecture.md)。
 

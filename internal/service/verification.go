@@ -203,7 +203,7 @@ func (s *Service) finishVerification(ctx context.Context, v store.Verification) 
 			if e != nil {
 				return e
 			}
-			if kind == "black" && !m.Admin() && !s.SuperAdmins[v.UserID] {
+			if kind == "black" && !m.Admin() && !s.IsSuperAdmin(v.UserID) {
 				if e = s.Bot.Ban(ctx, v.ChatID, v.UserID); e != nil {
 					return e
 				}
