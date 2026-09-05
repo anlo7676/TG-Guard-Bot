@@ -132,7 +132,7 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 	if e != nil {
 		return e
 	}
-	if protected {
+	if protected && p.Decision.Action != "unmute" && p.Decision.Action != "unban" {
 		return s.Store.PunishmentStep(ctx, l.EventKey, "skipped")
 	}
 	d := p.Decision
@@ -163,8 +163,8 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 			e = s.Say(ctx, l.ChatID, settings.Language, "warning", l.UserID)
 		case "mute":
 			seconds := int(time.Until(p.CreatedAt.Add(time.Duration(d.Duration) * time.Second)).Seconds())
-			if seconds >= 30 {
-				e = s.Bot.Restrict(ctx, l.ChatID, l.UserID, seconds)
+			if seconds > 0 {
+				e = s.Bot.Restrict(ctx, l.ChatID, l.UserID, max(30, seconds))
 			}
 		case "ban":
 			e = s.Bot.Ban(ctx, l.ChatID, l.UserID)
@@ -217,6 +217,9 @@ func (s *Service) Keywords(ctx context.Context, m domain.Message, event string) 
 			continue
 		}
 		in := map[string]any{"chat_id": m.Chat.ID}
+		if len(k.Buttons) > 0 {
+			in["reply_markup"] = map[string]any{"inline_keyboard": k.Buttons}
+		}
 		if k.Reply {
 			in["reply_parameters"] = map[string]any{"message_id": m.ID, "allow_sending_without_reply": true}
 		}

@@ -22,6 +22,9 @@ func (h *Handler) Handle(ctx context.Context, u domain.Update) error {
 			if e := s.State.R.Del(ctx, fmt.Sprintf("group:admins:%d", m.Chat.ID)).Err(); e != nil {
 				return e
 			}
+			if e := s.Store.MemberRole(ctx, m.Chat.ID, m.New.User, m.New.Status); e != nil {
+				return e
+			}
 		}
 		if !m.New.Present() {
 			return s.Store.Leave(ctx, m.Chat.ID, m.New.User.ID)
@@ -55,6 +58,9 @@ func (h *Handler) Handle(ctx context.Context, u domain.Update) error {
 		return nil
 	}
 	if m.Chat.Type == "private" {
+		if handled, e := s.GroupReply(ctx, *m); handled || e != nil {
+			return e
+		}
 		if command, arg, ok := service.ParseCommand(m.Text, s.Bot.Username); ok {
 			return s.Command(ctx, u.ID, *m, command, arg)
 		}
@@ -65,6 +71,9 @@ func (h *Handler) Handle(ctx context.Context, u domain.Update) error {
 		return nil
 	}
 	if m.Chat.Type != "supergroup" {
+		if m.Chat.Type == "group" && strings.HasPrefix(m.Text, "/settings") {
+			return s.Say(ctx, m.Chat.ID, "zh_CN", "bot_permissions")
+		}
 		return nil
 	}
 	// A command or bot mention must not provide an escape hatch for advertising.

@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/alicebob/miniredis/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"tgguard/internal/domain"
+	"tgguard/internal/state"
 	"tgguard/internal/store"
 	"tgguard/internal/telegram"
 )
@@ -40,7 +42,7 @@ func TestGroupMenuRechecksRevokedAndForgedAccess(t *testing.T) {
 				}
 			}))
 			defer srv.Close()
-			s := &Service{Store: &store.Store{DB: db}, Bot: &telegram.Client{BaseURL: srv.URL, HTTP: srv.Client()}}
+			s := &Service{Store: &store.Store{DB: db}, State: menuTestState(t), Bot: &telegram.Client{BaseURL: srv.URL, HTTP: srv.Client()}}
 			if status == "administrator" {
 				mock.ExpectQuery("SELECT chat_id,title FROM bot_groups").WithArgs(int64(-1002)).WillReturnRows(sqlmock.NewRows([]string{"chat_id", "title"}).AddRow(-1002, "群 B"))
 				mock.ExpectQuery("SELECT settings FROM group_settings").WithArgs(int64(-1002)).WillReturnRows(sqlmock.NewRows([]string{"settings"}))
@@ -110,17 +112,24 @@ func TestMyGroupsHidesOtherGroups(t *testing.T) {
 			return
 		}
 		b, _ := json.Marshal(in)
-		if strings.Contains(string(b), "其他人的群") || !strings.Contains(string(b), "gm:-1001:home") {
+		if strings.Contains(string(b), "其他人的群") || !strings.Contains(string(b), "gmc:") {
 			t.Error("group list not permission filtered")
 		}
 		w.Write([]byte(`{"ok":true,"result":{"message_id":1}}`))
 	}))
 	defer srv.Close()
-	s := &Service{Store: &store.Store{DB: db}, Bot: &telegram.Client{BaseURL: srv.URL, HTTP: srv.Client()}}
+	s := &Service{Store: &store.Store{DB: db}, State: menuTestState(t), Bot: &telegram.Client{BaseURL: srv.URL, HTTP: srv.Client()}}
 	if err := s.MyGroups(context.Background(), domain.Message{Chat: domain.Chat{ID: 42, Type: "private"}, From: &domain.User{ID: 42}}, 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func menuTestState(t *testing.T) *state.State {
+	m := miniredis.RunT(t)
+	r := state.New(m.Addr(), "")
+	t.Cleanup(func() { r.R.Close() })
+	return r
 }

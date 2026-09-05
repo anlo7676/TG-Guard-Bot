@@ -21,6 +21,20 @@ func TestNormalizeHiddenLinksAndUnicode(t *testing.T) {
 		t.Fatal("normalization failed")
 	}
 }
+
+func TestBase58WalletSurvivesNormalization(t *testing.T) {
+	n := Normalize(domain.Message{Text: "私聊推广 T" + strings.Repeat("L", 33)})
+	r := Evaluate(n, domain.DefaultSettings())
+	found := false
+	for _, m := range r.Matches {
+		if m.Rule == "crypto" {
+			found = true
+		}
+	}
+	if !n.HasWallet || !found {
+		t.Fatal("wallet lost during lowercasing", n, r)
+	}
+}
 func TestUTF16URLBounds(t *testing.T) {
 	m := domain.Message{Text: "😀https://example.com", Entities: []domain.Entity{{Type: "url", Offset: 2, Length: 19}, {Type: "url", Offset: 999, Length: 100}, {Type: "url", Offset: -1, Length: 4}}}
 	n := Normalize(m)

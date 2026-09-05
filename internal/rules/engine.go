@@ -30,6 +30,8 @@ func Clean(s string) string {
 
 func Normalize(m domain.Message) domain.Normalized {
 	n := domain.Normalized{ChatID: m.Chat.ID, MessageID: m.ID, Text: Clean(m.Body()), URLs: []string{}, Mentions: []string{}}
+	// Base58 wallet addresses are case-sensitive; detect before lowercasing text.
+	n.HasWallet = walletRE.MatchString(m.Body())
 	if m.From != nil {
 		n.UserID = m.From.ID
 		n.Username = m.From.Username
@@ -119,7 +121,7 @@ func Evaluate(n domain.Normalized, s domain.Settings) domain.Risk {
 	add("advertising", ad, 25, "广告招揽词")
 	add("gambling", contains(n.Text, "博彩", "投注", "棋牌", "赌场", "casino", "betting"), 35, "博彩推广词")
 	add("porn", contains(n.Text, "裸聊", "成人视频", "约炮", "成人视频"), 35, "色情推广词")
-	add("crypto", ad && (walletRE.MatchString(n.Text) || contains(n.Text, "usdt", "trc20", "erc20", "换u", "充值", "兑换")), 20, "加密货币招揽")
+	add("crypto", ad && (n.HasWallet || walletRE.MatchString(n.Text) || contains(n.Text, "usdt", "trc20", "erc20", "换u", "充值", "兑换")), 20, "加密货币招揽")
 	add("many_links", len(n.URLs) >= 3, 25, "大量链接")
 	add("caps", n.UppercaseRatio >= .8, 15, "大量大写字符")
 	emoji := 0

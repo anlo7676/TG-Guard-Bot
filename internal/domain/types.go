@@ -3,6 +3,7 @@ package domain
 import (
 	"encoding/json"
 	"errors"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -178,6 +179,7 @@ func one(s string, opts ...string) bool {
 }
 
 type Normalized struct {
+	HasWallet      bool     `json:"has_wallet"`
 	ChatID         int64    `json:"chat_id"`
 	MessageID      int64    `json:"message_id"`
 	UserID         int64    `json:"user_id"`
@@ -223,18 +225,45 @@ type Decision struct {
 	Reason   string `json:"reason"`
 }
 type Keyword struct {
-	ID        int64  `json:"id"`
-	ChatID    int64  `json:"chat_id"`
-	Keyword   string `json:"keyword"`
-	MatchType string `json:"match_type"`
-	ReplyType string `json:"reply_type"`
-	Content   string `json:"content"`
-	Priority  int    `json:"priority"`
-	Enabled   bool   `json:"enabled"`
-	Reply     bool   `json:"reply"`
+	Buttons   [][]LinkButton `json:"buttons,omitempty"`
+	ID        int64          `json:"id"`
+	ChatID    int64          `json:"chat_id"`
+	Keyword   string         `json:"keyword"`
+	MatchType string         `json:"match_type"`
+	ReplyType string         `json:"reply_type"`
+	Content   string         `json:"content"`
+	Priority  int            `json:"priority"`
+	Enabled   bool           `json:"enabled"`
+	Reply     bool           `json:"reply"`
+}
+
+type LinkButton struct {
+	Text string `json:"text"`
+	URL  string `json:"url"`
 }
 
 func (k Keyword) Validate() error {
+	if len(k.Buttons) > 8 {
+		return errors.New("最多 8 行链接按钮")
+	}
+	for _, row := range k.Buttons {
+		if len(row) == 0 || len(row) > 4 {
+			return errors.New("每行需要 1–4 个按钮")
+		}
+		for _, b := range row {
+			u, e := url.Parse(b.URL)
+			if strings.TrimSpace(b.Text) == "" || len([]rune(b.Text)) > 40 || len(b.URL) > 1000 || e != nil || u.User != nil || (u.Scheme != "https" && u.Scheme != "http" && u.Scheme != "tg") || u.Host == "" {
+				return errors.New("按钮文字或链接不正确")
+			}
+		}
+	}
+	if k.ReplyType == "random" {
+		for _, line := range strings.Split(k.Content, "\n") {
+			if strings.TrimSpace(line) == "" {
+				return errors.New("随机回复不能包含空行")
+			}
+		}
+	}
 	if strings.TrimSpace(k.Keyword) == "" || len(k.Keyword) > 500 || k.Content == "" || len(k.Content) > 4000 || !one(k.MatchType, "exact", "contains", "starts_with", "ends_with", "regex") || !one(k.ReplyType, "text", "HTML", "MarkdownV2", "photo", "video", "document", "random") {
 		return errors.New("invalid keyword")
 	}

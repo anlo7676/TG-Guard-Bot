@@ -15,7 +15,11 @@ type menuButton = map[string]string
 
 func button(label, data string) menuButton { return menuButton{"text": label, "callback_data": data} }
 func (s *Service) groupMenuSend(ctx context.Context, user int64, text string, rows [][]menuButton) error {
-	_, err := s.Bot.Send(ctx, user, text, map[string]any{"inline_keyboard": rows}, 0)
+	rows, err := s.secureMenu(ctx, user, rows)
+	if err != nil {
+		return err
+	}
+	_, err = s.Bot.Send(ctx, user, text, map[string]any{"inline_keyboard": rows}, 0)
 	return err
 }
 func (s *Service) MyGroups(ctx context.Context, m domain.Message, before int64) error {
@@ -95,11 +99,14 @@ func (s *Service) GroupMenu(ctx context.Context, m domain.Message, data string) 
 		return err
 	}
 	section := parts[2]
+	if handled, e := s.groupAction(ctx, m, chat, parts); handled {
+		return e
+	}
 	if section == "set" {
 		if len(parts) != 5 {
 			return nil
 		}
-		if err = s.Store.ChangeSettings(ctx, chat, m.From.ID, func(v *domain.Settings) error { return setMenuField(v, parts[3], parts[4]) }); err != nil {
+		if err = s.Store.ChangeSettings(ctx, chat, m.From.ID, func(v *domain.Settings) error { return settingPatch(v, parts[3], parts[4]) }); err != nil {
 			return err
 		}
 		section = "settings"
@@ -114,56 +121,90 @@ func (s *Service) GroupMenu(ctx context.Context, m domain.Message, data string) 
 	switch section {
 	case "home":
 		text += "请选择本群管理功能。设置只影响这个群。"
-		rows = append(rows, []menuButton{button("⚙ 群设置", prefix+"settings"), button("📊 群统计", prefix+"stats")}, []menuButton{button("📏 审核规则", prefix+"rules"), button("💬 关键词回复", prefix+"keywords")}, []menuButton{button("白名单", prefix+"white"), button("黑名单", prefix+"black")})
+		rows = append(rows, []menuButton{button("⚙ 群设置", prefix+"settings"), button("📊 群统计", prefix+"stats")}, []menuButton{button("📏 审核规则", prefix+"rules"), button("💬 关键词回复", prefix+"keywords")}, []menuButton{button("白名单", prefix+"white"), button("黑名单", prefix+"black")}, []menuButton{button("可信用户", prefix+"trusted")})
 	case "settings":
-		text += "点击开关即可保存本群设置；按钮文字显示当前状态。\nAI 审核还要求部署者已配置全局模型接口。\n更多参数可在本群使用 /settings JSON 设置，或在 Web 后台群管理中修改。"
-		for _, f := range []struct {
-			key, label string
-			value      bool
-		}{{"verification_enabled", "新人验证", v.VerificationEnabled}, {"moderation_enabled", "内容审核", v.ModerationEnabled}, {"ai_enabled", "AI 辅助审核", v.AIEnabled}, {"spam_enabled", "防刷屏", v.SpamEnabled}, {"keyword_enabled", "关键词回复", v.KeywordEnabled}, {"auto_delete", "自动删除", v.AutoDelete}, {"auto_warn", "自动警告", v.AutoWarn}, {"auto_mute", "自动禁言", v.AutoMute}, {"auto_ban", "自动封禁", v.AutoBan}} {
-			status, next := "关", "true"
-			if f.value {
-				status, next = "开", "false"
-			}
-			rows = append(rows, []menuButton{button(f.label+"："+status, prefix+"set:"+f.key+":"+next)})
+		text += "请选择设置分类。保存立即生效，只影响本群。"
+		for _, x := range []struct{ key, label string }{{"verify", "新人验证"}, {"review", "消息与 AI 审核"}, {"spam", "防刷屏"}, {"punish", "自动处罚"}, {"other", "关键词、日志与语言"}} {
+			rows = append(rows, []menuButton{button(x.label, prefix+"category:"+x.key)})
 		}
-		text += fmt.Sprintf("\n\n验证：%s，%d 秒，失败 %s\n禁言时长：%d 秒", v.VerificationType, v.VerificationTimeout, v.VerificationFailAction, v.MuteSeconds)
-		rows = append(rows, []menuButton{button("数学题验证", prefix+"set:verification_type:math"), button("按钮验证", prefix+"set:verification_type:button")}, []menuButton{button("验证 3 分钟", prefix+"set:verification_timeout:180"), button("验证 5 分钟", prefix+"set:verification_timeout:300")})
+	case "category":
+		if len(parts) != 4 {
+			return nil
+		}
+		values := settingValues(v)
+		text += "点击项目修改。AI 功能需先由部署者配置模型接口。"
+		for _, f := range domain.SettingFields {
+			if f.Section == parts[3] {
+				rows = append(rows, []menuButton{button(f.Label+"："+displayValue(values[f.Key]), prefix+"field:"+f.Key)})
+			}
+		}
 	case "rules":
-		text += "本群规则覆盖配置：\n" + prettyMenu(v.Rules) + fmt.Sprintf("\nAI 门槛：%d；直接处理门槛：%d\n\n在本群发送以下命令修改 URL 规则（只影响本群）：\n/settings {\"rules\":{\"url\":{\"enabled\":true,\"score\":20}}}", v.AIThreshold, v.DirectThreshold)
+		text += fmt.Sprintf("AI 触发风险分：%d；直接处理风险分：%d\n点击规则可切换启用状态、修改评分。", v.AIThreshold, v.DirectThreshold)
+		for _, r := range menuRules {
+			value := ruleValue(v, r.Key)
+			rows = append(rows, []menuButton{button(fmt.Sprintf("%s · %s · %d 分", r.Label, displayValue(value.Enabled), value.Score), prefix+"rule:"+r.Key)})
+		}
 	case "keywords":
 		ks, e := s.Store.Keywords(ctx, chat)
 		if e != nil {
 			return e
 		}
-		text += fmt.Sprintf("关键词回复：%d 条\n", len(ks))
-		for i, k := range ks {
-			if i >= 10 {
-				break
-			}
-			word := []rune(k.Keyword)
-			if len(word) > 60 {
-				word = word[:60]
-			}
-			text += fmt.Sprintf("#%d · %s · %s\n", k.ID, k.MatchType, string(word))
+		text += fmt.Sprintf("关键词回复：%d 条。点击规则查看、编辑、启停或删除。", len(ks))
+		offset := 0
+		if len(parts) == 4 {
+			offset, _ = strconv.Atoi(parts[3])
 		}
-		text += "\n在本群发送：\n/keywords add contains 官网 | https://example.com\n/keywords del 规则ID\n\n完整管理可使用 Web 后台的本群关键词页面。"
-	case "white", "black":
-		entries, e := s.Store.Rows(ctx, "SELECT user_id,username,expires_at FROM list_entries WHERE chat_id=? AND kind=? ORDER BY id DESC LIMIT 10", chat, section)
+		if offset < 0 || offset > len(ks) {
+			offset = 0
+		}
+		for i := offset; i < len(ks) && i < offset+8; i++ {
+			k := ks[i]
+			word := []rune(k.Keyword)
+			if len(word) > 30 {
+				word = word[:30]
+			}
+			rows = append(rows, []menuButton{button(fmt.Sprintf("#%d %s · %s", k.ID, string(word), displayValue(k.Enabled)), prefix+"kw:"+strconv.FormatInt(k.ID, 10))})
+		}
+		if offset+8 < len(ks) {
+			rows = append(rows, []menuButton{button("下一页", fmt.Sprintf("%skeywords:%d", prefix, offset+8))})
+		}
+		rows = append(rows, []menuButton{button("＋ 新增关键词", prefix+"kwAdd")})
+	case "white", "black", "trusted":
+		before := int64(9223372036854775807)
+		if len(parts) == 4 {
+			if n, e := strconv.ParseInt(parts[3], 10, 64); e == nil && n > 0 {
+				before = n
+			}
+		}
+		entries, e := s.Store.Rows(ctx, "SELECT id,user_id,username FROM list_entries WHERE chat_id=? AND kind=? AND id<? ORDER BY id DESC LIMIT 9", chat, section, before)
 		if e != nil {
 			return e
 		}
-		cmd := "whitelist"
-		if section == "black" {
-			cmd = "blacklist"
+		labels := map[string]string{"white": "白名单", "black": "黑名单", "trusted": "可信用户"}
+		text += labels[section] + " · 点击记录可移除。"
+		if len(entries) == 0 {
+			text += "\n暂无记录。"
 		}
-		text += "本群名单（最近 10 条）：\n" + prettyMenu(entries) + "\n\n在本群发送：\n/" + cmd + " add 用户ID\n/" + cmd + " remove 用户ID"
+		for i, l := range entries {
+			if i >= 8 {
+				break
+			}
+			label := fmt.Sprintf("%v @%v", l["user_id"], l["username"])
+			rows = append(rows, []menuButton{button(label, fmt.Sprintf("%slistDelete:%v", prefix, l["id"]))})
+		}
+		if len(entries) > 8 {
+			rows = append(rows, []menuButton{button("下一页", fmt.Sprintf("%s%s:%v", prefix, section, entries[7]["id"]))})
+		}
+		rows = append(rows, []menuButton{button("＋ 添加"+labels[section], prefix+"listAdd:"+section)})
 	case "stats":
 		stats, e := s.Store.Rows(ctx, "SELECT (SELECT COUNT(*) FROM group_members WHERE chat_id=? AND left_at IS NULL) AS known_members,(SELECT COUNT(*) FROM moderation_logs WHERE chat_id=?) AS reviewed_messages,(SELECT COUNT(*) FROM punishments WHERE chat_id=? AND status='done') AS punishments", chat, chat, chat)
 		if e != nil {
 			return e
 		}
-		text += "本群统计（已记录成员、累计审核、已完成处罚）：\n" + prettyMenu(stats)
+		if len(stats) > 0 {
+			r := stats[0]
+			text += fmt.Sprintf("已记录成员：%v\n累计审核消息：%v\n已完成处罚：%v", r["known_members"], r["reviewed_messages"], r["punishments"])
+		}
 	default:
 		return nil
 	}

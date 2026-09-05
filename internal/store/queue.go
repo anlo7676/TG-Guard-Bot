@@ -72,3 +72,23 @@ func (s *Store) Finish(ctx context.Context, j Job, jobErr error) error {
 	_, e := s.DB.ExecContext(ctx, "UPDATE update_inbox SET status=?,last_error=?,available_at=?,lease_until=NULL WHERE update_id=? AND attempts=? AND status='processing'", status, msg, delay, j.Update.ID, j.Attempts)
 	return e
 }
+
+func (s *Store) RetryDead(ctx context.Context, update, actor int64) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var chat int64
+	var attempts int
+	if err = tx.QueryRowContext(ctx, "SELECT partition_id,attempts FROM update_inbox WHERE update_id=? AND status='dead' FOR UPDATE", update).Scan(&chat, &attempts); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "UPDATE update_inbox SET status='pending',attempts=0,last_error='',available_at=UTC_TIMESTAMP(6),lease_until=NULL WHERE update_id=? AND status='dead'", update); err != nil {
+		return err
+	}
+	if err = audit(ctx, tx, chat, actor, "queue.retry", map[string]any{"update_id": update, "status": "dead", "attempts": attempts}, map[string]any{"update_id": update, "status": "pending"}); err != nil {
+		return err
+	}
+	return tx.Commit()
+}

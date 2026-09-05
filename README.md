@@ -16,7 +16,7 @@
 | AI | Provider 接口、OpenAI Compatible Chat Completions、严格 JSON 校验、超时、并发上限、群限流、24 小时缓存、Token 用量日志 |
 | 处罚 | 删除、警告、禁言、踢出、封禁、解除禁言／封禁、仅记录；执行前实时复核目标管理员／白名单身份 |
 | 人工复核 | 回复消息 `/check`、`/ai` 或 @机器人；管理员按钮删除／禁言／封禁／误判／白名单，15 分钟有效期 |
-| 关键词 | 群级 CRUD、5 种匹配方式、优先级、启停、文本／HTML／MarkdownV2／图片／视频／文件／随机文本、回复原消息 |
+| 关键词 | 群级 CRUD、5 种匹配方式、优先级、启停、文本／HTML／MarkdownV2／图片／视频／文件／随机文本、回复原消息、可视化链接按钮 |
 | 名单 | 群／全局白名单、黑名单、可信名单，按 Telegram ID 或 username 匹配，支持有效期 |
 | 管理 | Telegram 命令、Bearer Token 管理 API、仪表盘统计、群设置、用户查询、审核／处罚／验证／操作日志、误判反馈 |
 | 运维 | MySQL 去重收件箱、不同群并行处理、失败重试与死信、JSON 日志、健康检查、优雅停机、单实例锁 |
@@ -42,6 +42,16 @@ docker compose logs -f app
 Compose 固定 `golang:1.26.2-alpine`、`mysql:8.4`、`redis:8.6.2-alpine`。MySQL 8.4 使用该 LTS 系列的镜像更新。MySQL、Redis 不向宿主机暴露端口，HTTP 仅绑定宿主机 `127.0.0.1:8080`。
 
 数据库迁移在应用启动时自动执行，迁移版本保存在 `schema_migrations`。所有连接使用 UTC 和 `utf8mb4`；Redis 启用 AOF。
+
+### 本机运行与更新
+
+```powershell
+pwsh -File scripts/start-local.ps1
+pwsh -File scripts/open-panel.ps1
+# 停止：pwsh -File scripts/start-local.ps1 -Stop
+```
+
+启动脚本先构建、再替换进程，核对运行源码指纹。机器人 `/version` 和后台左下角显示当前版本。完整检查报告见 [2026-09-06 验收说明](docs/acceptance-2026-09-06.md)。
 
 ### 本机 Go 开发
 
@@ -111,7 +121,7 @@ Go 可执行程序本身只读环境变量；自动读取 `.env` 的入口是 Po
 - 手工 AI 查询默认所有成员可用，最多每人每群每分钟 3 次；AI 实际调用另有每群每分钟 30 次限制。
 - 关键词默认只触发优先级最高的一条，优先级相同时 ID 较小者优先；`keyword_all=true` 最多回复 5 条，避免自动回复刷屏。
 
-私聊主菜单以「我的群组」为入口，选择群后可修改验证、审核、AI、防刷屏及自动处罚开关，并查看该群统计、规则、关键词和名单。每次读取和写入均检查当前群管理员权限。关键词和名单页面提供群内编辑命令；完整配置通过 Web 后台或管理 API 获取，群内 `/settings JSON` 仍支持高级参数。`rules` 对象支持按规则名称覆盖 `enabled`、`score`。全局黑名单优先于普通群白名单；Telegram 管理员和 Bot 超管仍受保护。
+私聊主菜单以「我的群组」为入口，选择群后可修改验证、审核、AI、防刷屏及自动处罚开关，并查看该群统计、规则、关键词和名单。每次读取和写入均检查当前群管理员权限。关键词和名单支持私聊编辑；按钮绑定用户和目标群，30 分钟过期，输入提示 10 分钟过期且可用 `/cancel` 取消。完整配置通过 Web 后台或管理 API 获取，群内 `/settings JSON` 仍支持高级参数。`rules` 对象支持按规则名称覆盖 `enabled`、`score`。全局黑名单优先于普通群白名单；Telegram 管理员和 Bot 超管仍受保护。
 
 ## 管理 API
 
@@ -130,7 +140,7 @@ API 支持 Bearer Token 和 HttpOnly Cookie 会话，Cookie 写操作需要 CSRF
 
 ```powershell
 .\scripts\test.ps1
-# 生成 bin/tgguard.exe
+# 生成 bin/tgguard-next.exe，不覆盖正在运行的程序
 ```
 
 ```sh

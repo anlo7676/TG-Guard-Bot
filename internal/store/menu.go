@@ -56,6 +56,9 @@ func (s *Store) ChangeSettings(ctx context.Context, chat, actor int64, change fu
 			return err
 		}
 	}
+	if v.Rules == nil {
+		v.Rules = map[string]domain.RuleSetting{}
+	}
 	before := JSON(v)
 	if err = change(&v); err != nil {
 		return err
@@ -70,4 +73,24 @@ func (s *Store) ChangeSettings(ctx context.Context, chat, actor int64, change fu
 		return err
 	}
 	return tx.Commit()
+}
+
+func (s *Store) MenuListEntry(ctx context.Context, chat, id int64) (domain.ListEntry, error) {
+	l := domain.ListEntry{ChatID: chat}
+	err := s.DB.QueryRowContext(ctx, "SELECT user_id,username,kind FROM list_entries WHERE id=? AND chat_id=?", id, chat).Scan(&l.UserID, &l.Username, &l.Kind)
+	return l, err
+}
+
+func (s *Store) GroupExists(ctx context.Context, chat int64) (bool, error) {
+	var found bool
+	err := s.DB.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM bot_groups WHERE chat_id=?)", chat).Scan(&found)
+	return found, err
+}
+
+func (s *Store) MemberRole(ctx context.Context, chat int64, u domain.User, role string) error {
+	if err := s.User(ctx, u); err != nil {
+		return err
+	}
+	_, err := s.DB.ExecContext(ctx, "INSERT INTO group_members(chat_id,user_id,role) VALUES(?,?,?) ON DUPLICATE KEY UPDATE role=VALUES(role)", chat, u.ID, role)
+	return err
 }

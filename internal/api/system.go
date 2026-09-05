@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"tgguard/internal/buildinfo"
 	"tgguard/internal/domain"
 	"tgguard/internal/settings"
 	"time"
@@ -14,7 +15,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == "GET" {
-		respond(w, 200, map[string]any{"settings": s.Service.Runtime.Snapshot().Public(), "bot": map[string]any{"id": s.Service.Bot.ID, "username": s.Service.Bot.Username}})
+		respond(w, 200, map[string]any{"settings": s.Service.Runtime.Snapshot().Public(), "bot": map[string]any{"id": s.Service.Bot.ID, "username": s.Service.Bot.Username}, "build": buildinfo.Info()})
 		return
 	}
 	var body struct {

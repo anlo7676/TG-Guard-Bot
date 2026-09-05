@@ -214,7 +214,7 @@ func (s *Store) SaveList(ctx context.Context, l domain.ListEntry, actor int64, r
 	return tx.Commit()
 }
 func (s *Store) Keywords(ctx context.Context, chat int64) ([]domain.Keyword, error) {
-	rows, e := s.DB.QueryContext(ctx, "SELECT id,chat_id,keyword,match_type,reply_type,content,priority,enabled,reply FROM keyword_rules WHERE chat_id=? ORDER BY priority DESC,id ASC", chat)
+	rows, e := s.DB.QueryContext(ctx, "SELECT id,chat_id,keyword,match_type,reply_type,content,priority,enabled,reply,buttons FROM keyword_rules WHERE chat_id=? ORDER BY priority DESC,id ASC", chat)
 	if e != nil {
 		return nil, e
 	}
@@ -222,8 +222,14 @@ func (s *Store) Keywords(ctx context.Context, chat int64) ([]domain.Keyword, err
 	out := []domain.Keyword{}
 	for rows.Next() {
 		var k domain.Keyword
-		if e = rows.Scan(&k.ID, &k.ChatID, &k.Keyword, &k.MatchType, &k.ReplyType, &k.Content, &k.Priority, &k.Enabled, &k.Reply); e != nil {
+		var buttons []byte
+		if e = rows.Scan(&k.ID, &k.ChatID, &k.Keyword, &k.MatchType, &k.ReplyType, &k.Content, &k.Priority, &k.Enabled, &k.Reply, &buttons); e != nil {
 			return nil, e
+		}
+		if len(buttons) > 0 {
+			if e = json.Unmarshal(buttons, &k.Buttons); e != nil {
+				return nil, e
+			}
 		}
 		out = append(out, k)
 	}
@@ -238,8 +244,9 @@ func (s *Store) SaveKeyword(ctx context.Context, k domain.Keyword, actor int64) 
 		return 0, e
 	}
 	defer tx.Rollback()
+	var before json.RawMessage
 	if k.ID == 0 {
-		r, e := tx.ExecContext(ctx, "INSERT INTO keyword_rules(chat_id,keyword,match_type,reply_type,content,priority,enabled,reply,created_by) VALUES(?,?,?,?,?,?,?,?,?)", k.ChatID, k.Keyword, k.MatchType, k.ReplyType, k.Content, k.Priority, k.Enabled, k.Reply, actor)
+		r, e := tx.ExecContext(ctx, "INSERT INTO keyword_rules(chat_id,keyword,match_type,reply_type,content,priority,enabled,reply,created_by,buttons) VALUES(?,?,?,?,?,?,?,?,?,?)", k.ChatID, k.Keyword, k.MatchType, k.ReplyType, k.Content, k.Priority, k.Enabled, k.Reply, actor, JSON(k.Buttons))
 		if e != nil {
 			return 0, e
 		}
@@ -248,16 +255,15 @@ func (s *Store) SaveKeyword(ctx context.Context, k domain.Keyword, actor int64) 
 			return 0, e
 		}
 	} else {
-		var id int64
-		if e = tx.QueryRowContext(ctx, "SELECT id FROM keyword_rules WHERE id=? AND chat_id=? FOR UPDATE", k.ID, k.ChatID).Scan(&id); e != nil {
+		if e = tx.QueryRowContext(ctx, "SELECT JSON_OBJECT('id',id,'keyword',keyword,'match_type',match_type,'reply_type',reply_type,'content',content,'priority',priority,'enabled',enabled,'reply',reply,'buttons',buttons) FROM keyword_rules WHERE id=? AND chat_id=? FOR UPDATE", k.ID, k.ChatID).Scan(&before); e != nil {
 			return 0, e
 		}
-		_, e = tx.ExecContext(ctx, "UPDATE keyword_rules SET keyword=?,match_type=?,reply_type=?,content=?,priority=?,enabled=?,reply=? WHERE id=? AND chat_id=?", k.Keyword, k.MatchType, k.ReplyType, k.Content, k.Priority, k.Enabled, k.Reply, k.ID, k.ChatID)
+		_, e = tx.ExecContext(ctx, "UPDATE keyword_rules SET keyword=?,match_type=?,reply_type=?,content=?,priority=?,enabled=?,reply=?,buttons=? WHERE id=? AND chat_id=?", k.Keyword, k.MatchType, k.ReplyType, k.Content, k.Priority, k.Enabled, k.Reply, JSON(k.Buttons), k.ID, k.ChatID)
 		if e != nil {
 			return 0, e
 		}
 	}
-	if e = audit(ctx, tx, k.ChatID, actor, "keyword.upsert", nil, k); e != nil {
+	if e = audit(ctx, tx, k.ChatID, actor, "keyword.upsert", before, k); e != nil {
 		return 0, e
 	}
 	return k.ID, tx.Commit()
@@ -268,6 +274,10 @@ func (s *Store) DeleteKeyword(ctx context.Context, chat, id, actor int64) error 
 		return e
 	}
 	defer tx.Rollback()
+	var before json.RawMessage
+	if e = tx.QueryRowContext(ctx, "SELECT JSON_OBJECT('id',id,'keyword',keyword,'match_type',match_type,'reply_type',reply_type,'content',content,'priority',priority,'enabled',enabled,'reply',reply,'buttons',buttons) FROM keyword_rules WHERE chat_id=? AND id=? FOR UPDATE", chat, id).Scan(&before); e != nil {
+		return e
+	}
 	r, e := tx.ExecContext(ctx, "DELETE FROM keyword_rules WHERE chat_id=? AND id=?", chat, id)
 	if e != nil {
 		return e
@@ -276,7 +286,7 @@ func (s *Store) DeleteKeyword(ctx context.Context, chat, id, actor int64) error 
 	if n == 0 {
 		return sql.ErrNoRows
 	}
-	if e = audit(ctx, tx, chat, actor, "keyword.delete", nil, map[string]int64{"id": id}); e != nil {
+	if e = audit(ctx, tx, chat, actor, "keyword.delete", before, map[string]int64{"id": id}); e != nil {
 		return e
 	}
 	return tx.Commit()

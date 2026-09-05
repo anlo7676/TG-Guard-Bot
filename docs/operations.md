@@ -78,3 +78,9 @@ MySQL 卷保存群配置、成员、验证、审核和处罚数据；Redis 卷�
 ```
 
 Linux 可使用 `CGO_ENABLED=0 go build -trimpath -o bin/tgguard ./cmd/tgguard`。升级数据库结构时新增迁移文件，已在生产执行的迁移不可修改；迁移前先备份。MySQL DDL 无整体事务回滚，新增迁移应设计为可安全恢复的操作。
+
+## 本机发布与版本核验
+
+使用 `pwsh -File scripts/start-local.ps1` 统一构建和启动，`-Stop` 停止本项目进程。`scripts/test.ps1` 构建 next 文件，不覆盖运行文件。旧二进制保存在 `bin/tgguard-previous.exe`，数据库需要另行备份；不能将二进制备份误认为数据库备份。
+
+`/health/live` 和 Web 后台展示运行源码指纹，机器人 `/version` 也可核对。升级后请重新发送 `/menu`，旧 Telegram 消息不会自动更新，旧版回调会提示刷新菜单。完整交付与限制见 acceptance-2026-09-06.md。

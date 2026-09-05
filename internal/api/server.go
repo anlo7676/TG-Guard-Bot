@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"tgguard/internal/buildinfo"
 	"time"
 
 	"tgguard/internal/config"
@@ -33,7 +34,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /auth/ticket", s.withAuthTimeout(s.exchangeTicket))
 	mux.HandleFunc("GET /auth/session", s.withAuthTimeout(s.sessionInfo))
 	mux.HandleFunc("POST /auth/logout", s.withAuthTimeout(s.logout))
-	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, r *http.Request) { respond(w, 200, map[string]string{"status": "ok"}) })
+	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, r *http.Request) {
+		respond(w, 200, map[string]any{"status": "ok", "build": buildinfo.Info()})
+	})
 	mux.HandleFunc("GET /health/ready", s.ready)
 	if s.Config.Mode == "webhook" {
 		mux.HandleFunc("POST /telegram/webhook", s.webhook)
@@ -49,6 +52,7 @@ func (s *Server) Handler() http.Handler {
 	admin.HandleFunc("PUT /api/v1/groups/{chat}/settings", s.settings)
 	admin.HandleFunc("GET /api/v1/groups/{chat}/keywords", s.keywords)
 	admin.HandleFunc("POST /api/v1/groups/{chat}/keywords", s.keywords)
+	admin.HandleFunc("POST /api/v1/groups/{chat}/keywords/test", s.testKeywords)
 	admin.HandleFunc("PUT /api/v1/groups/{chat}/keywords/{id}", s.keywords)
 	admin.HandleFunc("DELETE /api/v1/groups/{chat}/keywords/{id}", s.keywords)
 	admin.HandleFunc("GET /api/v1/groups/{chat}/lists", s.lists)
@@ -56,11 +60,14 @@ func (s *Server) Handler() http.Handler {
 	admin.HandleFunc("DELETE /api/v1/groups/{chat}/lists", s.lists)
 	admin.HandleFunc("GET /api/v1/groups/{chat}/logs", s.logs)
 	admin.HandleFunc("GET /api/v1/groups/{chat}/users", s.users)
+	admin.HandleFunc("GET /api/v1/groups/{chat}/users/{user}", s.userDetail)
+	admin.HandleFunc("GET /api/v1/groups/{chat}/health", s.groupHealth)
 	admin.HandleFunc("GET /api/v1/groups/{chat}/punishments", s.punishments)
 	admin.HandleFunc("GET /api/v1/groups/{chat}/verifications", s.verifications)
 	admin.HandleFunc("GET /api/v1/groups/{chat}/audits", s.audits)
 	admin.HandleFunc("POST /api/v1/groups/{chat}/feedback", s.feedback)
 	admin.HandleFunc("GET /api/v1/queue/dead", s.dead)
+	admin.HandleFunc("POST /api/v1/queue/{update}/retry", s.retryDead)
 	mux.Handle("/api/", s.authenticate(admin))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -201,7 +208,7 @@ func (s *Server) groups(w http.ResponseWriter, r *http.Request) {
 	s.rows(w, r, "SELECT chat_id,title,active,created_at,updated_at FROM bot_groups WHERE chat_id<? ORDER BY chat_id DESC LIMIT 100", cursor(r))
 }
 func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
-	chat, ok := chatID(w, r, false)
+	chat, ok := s.groupID(w, r, false)
 	if !ok {
 		return
 	}
@@ -214,21 +221,29 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, settings)
 		return
 	}
-	if !decode(w, r, &settings, 65536, true) {
+	var raw json.RawMessage
+	if !decode(w, r, &raw, 65536, true) {
 		return
 	}
-	if e = settings.Validate(); e != nil {
+	probe := settings
+	if e = domain.ApplySettingsPatch(&probe, raw); e != nil {
 		respond(w, 400, map[string]string{"error": e.Error()})
 		return
 	}
-	if e = s.Service.Store.SaveSettings(r.Context(), chat, 0, settings); e != nil {
+	if e = s.Service.Store.ChangeSettings(r.Context(), chat, 0, func(v *domain.Settings) error { return domain.ApplySettingsPatch(v, raw) }); e != nil {
 		apiError(w, e)
 		return
 	}
+	settings, e = s.Service.Store.Settings(r.Context(), chat)
+	if e != nil {
+		apiError(w, e)
+		return
+	}
+
 	respond(w, 200, settings)
 }
 func (s *Server) keywords(w http.ResponseWriter, r *http.Request) {
-	chat, ok := chatID(w, r, false)
+	chat, ok := s.groupID(w, r, false)
 	if !ok {
 		return
 	}
@@ -276,7 +291,7 @@ func (s *Server) keywords(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, map[string]int64{"id": id})
 }
 func (s *Server) lists(w http.ResponseWriter, r *http.Request) {
-	chat, ok := chatID(w, r, true)
+	chat, ok := s.groupID(w, r, true)
 	if !ok {
 		return
 	}
@@ -301,14 +316,14 @@ func (s *Server) lists(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, map[string]bool{"ok": true})
 }
 func (s *Server) logs(w http.ResponseWriter, r *http.Request) {
-	chat, ok := chatID(w, r, false)
+	chat, ok := s.groupID(w, r, false)
 	if !ok {
 		return
 	}
 	s.rows(w, r, "SELECT id,user_id,message_id,message_text,risk_score,matched_rules,ai_result,decision,source,created_at FROM moderation_logs WHERE chat_id=? AND id<? ORDER BY id DESC LIMIT 100", chat, cursor(r))
 }
 func (s *Server) users(w http.ResponseWriter, r *http.Request) {
-	chat, ok := chatID(w, r, false)
+	chat, ok := s.groupID(w, r, false)
 	if !ok {
 		return
 	}
@@ -321,28 +336,28 @@ func (s *Server) users(w http.ResponseWriter, r *http.Request) {
 	s.rows(w, r, "SELECT u.user_id,u.username,u.display_name,m.role,m.joined_at,m.verified_at,m.left_at,m.message_count FROM group_members m JOIN users u ON u.user_id=m.user_id WHERE m.chat_id=? AND u.user_id<? AND (CAST(u.user_id AS CHAR)=? OR u.username LIKE ? OR u.display_name LIKE ?) ORDER BY u.user_id DESC LIMIT 100", chat, cursor(r), query, pattern, pattern)
 }
 func (s *Server) punishments(w http.ResponseWriter, r *http.Request) {
-	chat, ok := chatID(w, r, false)
+	chat, ok := s.groupID(w, r, false)
 	if !ok {
 		return
 	}
 	s.rows(w, r, "SELECT id,user_id,message_id,decision,source,actor_id,status,deleted,acted,last_error,created_at FROM punishments WHERE chat_id=? AND id<? ORDER BY id DESC LIMIT 100", chat, cursor(r))
 }
 func (s *Server) verifications(w http.ResponseWriter, r *http.Request) {
-	chat, ok := chatID(w, r, false)
+	chat, ok := s.groupID(w, r, false)
 	if !ok {
 		return
 	}
 	s.rows(w, r, "SELECT user_id,status,challenge_type,attempts,expires_at,verified_at,created_at FROM verification_sessions WHERE chat_id=? ORDER BY created_at DESC LIMIT 100", chat)
 }
 func (s *Server) audits(w http.ResponseWriter, r *http.Request) {
-	chat, ok := chatID(w, r, false)
+	chat, ok := s.groupID(w, r, false)
 	if !ok {
 		return
 	}
 	s.rows(w, r, "SELECT id,actor_id,action,old_value,new_value,created_at FROM admin_audits WHERE chat_id=? AND id<? ORDER BY id DESC LIMIT 100", chat, cursor(r))
 }
 func (s *Server) feedback(w http.ResponseWriter, r *http.Request) {
-	chat, ok := chatID(w, r, false)
+	chat, ok := s.groupID(w, r, false)
 	if !ok {
 		return
 	}
@@ -365,4 +380,21 @@ func (s *Server) feedback(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) dead(w http.ResponseWriter, r *http.Request) {
 	s.rows(w, r, "SELECT update_id,partition_id,attempts,last_error,created_at FROM update_inbox WHERE status='dead' AND update_id<? ORDER BY update_id DESC LIMIT 100", cursor(r))
+}
+
+func (s *Server) groupID(w http.ResponseWriter, r *http.Request, global bool) (int64, bool) {
+	chat, ok := chatID(w, r, global)
+	if !ok || chat == 0 {
+		return chat, ok
+	}
+	exists, e := s.Service.Store.GroupExists(r.Context(), chat)
+	if e != nil {
+		apiError(w, e)
+		return 0, false
+	}
+	if !exists {
+		respond(w, 404, map[string]string{"error": "群组尚未接入"})
+		return 0, false
+	}
+	return chat, true
 }

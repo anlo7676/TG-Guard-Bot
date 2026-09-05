@@ -16,6 +16,7 @@ import (
 	"tgguard/internal/ai"
 	"tgguard/internal/api"
 	"tgguard/internal/bot"
+	"tgguard/internal/buildinfo"
 	"tgguard/internal/config"
 	"tgguard/internal/service"
 	"tgguard/internal/settings"
@@ -138,7 +139,7 @@ func run() error {
 			}
 		}
 	}()
-	slog.Info("TG Guard started", "bot", tg.Username, "mode", c.Mode, "workers", c.Workers, "http_addr", c.HTTPAddr)
+	slog.Info("TG Guard started", "bot", tg.Username, "mode", c.Mode, "workers", c.Workers, "http_addr", c.HTTPAddr,"build",buildinfo.Info())
 	select {
 	case <-ctx.Done():
 	case e = <-errCh:

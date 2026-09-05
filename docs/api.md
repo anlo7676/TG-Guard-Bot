@@ -124,3 +124,13 @@
 - `GET /health/live`：进程存活，不访问数据库。
 - `GET /health/ready`：MySQL／Redis 可连接，失败返回 503；不代表 Telegram 或 AI 的外部连通性。
 - `POST /telegram/webhook`：只在 Webhook 模式注册。要求 `X-Telegram-Bot-Api-Secret-Token`，最大 1 MiB，只有写入 MySQL 收件箱后才返回成功。
+
+## v1.1 可用性更新
+
+- `GET /health/live` 包含 `build`：版本、源码指纹、构建时间、Git revision 和启动时间；后台系统响应也包含相同信息。`/version` 在 Telegram 显示版本与源码指纹。
+- `GET /api/v1/groups/{chat}/health` 实时查询机器人群权限，不修改 Telegram 群。
+- `GET /api/v1/groups/{chat}/users/{user}` 返回该成员最近 20 条验证、审核和处罚记录，不返回验证 Token。
+- `POST /api/v1/groups/{chat}/keywords/test` 接受 `{"text":"待测试消息"}`，返回命中规则及是否将回复，不发送 Telegram 消息。
+- 关键词支持 `buttons`，格式为 `[[{"text":"官网","url":"https://example.com"}]]`，最多 8 行、每行最多 4 个；仅支持 http、https、tg 链接。
+- `POST /api/v1/queue/{update}/retry` 仅重排状态为 dead 的任务，并记录部署者审计；不存在或已重排返回 404。
+- 群接口拒绝未接入的群；系统配置不受群级接口影响。群设置 PUT 在事务中合并提交字段，拒绝 null 和未知字段。

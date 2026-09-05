@@ -5,10 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"strconv"
 	"strings"
+	"tgguard/internal/buildinfo"
 	"time"
+	"unicode"
 
 	"tgguard/internal/domain"
 	"tgguard/internal/store"
@@ -18,7 +19,10 @@ func ParseCommand(text, username string) (command, arg string, ok bool) {
 	if !strings.HasPrefix(text, "/") {
 		return "", "", false
 	}
-	head, tail, _ := strings.Cut(text, " ")
+	head, tail := text, ""
+	if i := strings.IndexFunc(text, unicode.IsSpace); i >= 0 {
+		head, tail = text[:i], text[i:]
+	}
 	name, target, has := strings.Cut(strings.TrimPrefix(head, "/"), "@")
 	if has && !strings.EqualFold(target, username) {
 		return "", "", false
@@ -40,6 +44,8 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 		switch command {
 		case "start", "menu":
 			return s.Home(ctx, m)
+		case "cancel":
+			return s.CancelGroupInput(ctx, m)
 		case "help":
 			return s.PrivateSection(ctx, m, "help")
 		case "groups", "settings":
@@ -53,6 +59,8 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 		}
 	}
 	switch command {
+	case "version":
+		return s.text(ctx, m.Chat.ID, buildinfo.Label())
 	case "help", "start":
 		return s.Say(ctx, m.Chat.ID, lang, "help")
 	case "id":
@@ -103,21 +111,13 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 		if arg == "" {
 			return s.GroupMenuLink(ctx, m)
 		}
-		d := json.NewDecoder(strings.NewReader(arg))
-		d.DisallowUnknownFields()
-		if e = d.Decode(&settings); e != nil {
-			return s.text(ctx, m.Chat.ID, "用法：/settings {\"ai_enabled\":true}，仅覆盖提供的字段。")
+		if e = domain.ApplySettingsPatch(&settings, []byte(arg)); e != nil {
+			return s.text(ctx, m.Chat.ID, "设置未保存："+e.Error())
 		}
-		var extra any
-		if d.Decode(&extra) != io.EOF {
-			return s.text(ctx, m.Chat.ID, "只允许提供一个 JSON 对象。")
-		}
-		if e = settings.Validate(); e != nil {
-			return s.text(ctx, m.Chat.ID, e.Error())
-		}
-		if e = s.Store.SaveSettings(ctx, m.Chat.ID, m.From.ID, settings); e != nil {
+		if e = s.Store.ChangeSettings(ctx, m.Chat.ID, m.From.ID, func(v *domain.Settings) error { return domain.ApplySettingsPatch(v, []byte(arg)) }); e != nil {
 			return e
 		}
+
 	case "rules":
 		return s.sendJSON(ctx, m.Chat.ID, map[string]any{"defaults": map[string]int{"url": 20, "telegram_link": 40, "contact": 25, "mention": 20, "advertising": 25, "gambling": 35, "porn": 35, "crypto": 20, "many_links": 25, "emoji": 15}, "overrides": settings.Rules, "usage": "/settings {\"rules\":{\"url\":{\"enabled\":false,\"score\":20}}}"})
 	case "stats":
@@ -189,7 +189,7 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 		if e != nil {
 			return e
 		}
-		if protected {
+		if protected && command != "unmute" && command != "unban" {
 			return s.Say(ctx, m.Chat.ID, lang, "denied")
 		}
 		if e = s.Punish(ctx, store.Log{EventKey: eventKey(update, "command"), ChatID: m.Chat.ID, UserID: target, MessageID: message, Decision: domain.Decision{Action: command, Duration: duration, Reason: "administrator_command"}, Source: "manual"}, m.From.ID); e != nil {

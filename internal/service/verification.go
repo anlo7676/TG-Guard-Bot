@@ -151,7 +151,7 @@ func (s *Service) StartVerification(ctx context.Context, m domain.Message, token
 }
 func (s *Service) VerificationReply(ctx context.Context, m domain.Message) error {
 	if m.From == nil || m.Reply == nil || m.Reply.From == nil || m.Reply.From.ID != s.Bot.ID {
-		return s.Say(ctx, m.Chat.ID, "zh_CN", "help")
+		return s.Home(ctx, m)
 	}
 	var token string
 	if e := s.State.Get(ctx, fmt.Sprintf("verify:prompt:%d:%d", m.From.ID, m.Reply.ID), &token); e != nil {

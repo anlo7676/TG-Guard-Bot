@@ -9,7 +9,7 @@ import (
 )
 
 func (s *Service) RegisterMenus(ctx context.Context) error {
-	common := []map[string]string{{"command": "groups", "description": "选择我管理的群组"}, {"command": "settings", "description": "选择群组并修改群设置"}, {"command": "start", "description": "打开主菜单"}, {"command": "menu", "description": "群管理菜单"}, {"command": "id", "description": "查看我的 Telegram ID"}, {"command": "help", "description": "使用帮助"}}
+	common := []map[string]string{{"command": "groups", "description": "选择我管理的群组"}, {"command": "settings", "description": "选择群组并修改群设置"}, {"command": "start", "description": "打开主菜单"}, {"command": "menu", "description": "群管理菜单"}, {"command": "id", "description": "查看我的 Telegram ID"}, {"command": "help", "description": "使用帮助"}, {"command": "version", "description": "查看运行版本"}}
 	if e := s.Bot.Call(ctx, "setMyCommands", map[string]any{"commands": common, "scope": map[string]string{"type": "all_private_chats"}}, nil); e != nil {
 		return e
 	}
@@ -17,7 +17,7 @@ func (s *Service) RegisterMenus(ctx context.Context) error {
 	if e := s.Bot.Call(ctx, "setMyCommands", map[string]any{"commands": group, "scope": map[string]string{"type": "all_group_chats"}}, nil); e != nil {
 		return e
 	}
-	admin := append(append([]map[string]string{}, group...), []map[string]string{{"command": "settings", "description": "群设置"}, {"command": "stats", "description": "群统计"}, {"command": "keywords", "description": "关键词回复"}, {"command": "whitelist", "description": "白名单"}, {"command": "blacklist", "description": "黑名单"}, {"command": "mute", "description": "回复消息禁言用户"}, {"command": "ban", "description": "回复消息封禁用户"}}...)
+	admin := append(append([]map[string]string{}, group...), []map[string]string{{"command": "settings", "description": "打开本群管理菜单"}, {"command": "menu", "description": "打开本群管理菜单"}, {"command": "rules", "description": "查看本群审核规则"}, {"command": "warn", "description": "回复消息警告用户"}, {"command": "unmute", "description": "回复消息解除禁言"}, {"command": "unban", "description": "解除用户封禁"}, {"command": "stats", "description": "群统计"}, {"command": "keywords", "description": "关键词回复"}, {"command": "whitelist", "description": "白名单"}, {"command": "blacklist", "description": "黑名单"}, {"command": "mute", "description": "回复消息禁言用户"}, {"command": "ban", "description": "回复消息封禁用户"}}...)
 	if e := s.Bot.Call(ctx, "setMyCommands", map[string]any{"commands": admin, "scope": map[string]string{"type": "all_chat_administrators"}}, nil); e != nil {
 		return e
 	}
@@ -83,8 +83,18 @@ func (s *Service) MenuCallback(ctx context.Context, c domain.Callback) error {
 	_ = s.Bot.AnswerCallback(ctx, c.ID, "")
 	m := *c.Message
 	m.From = &c.From
+	if strings.HasPrefix(c.Data, "gmc:") {
+		data, e := s.resolveMenu(ctx, c)
+		if e != nil {
+			return e
+		}
+		if data == "" {
+			return s.text(ctx, m.Chat.ID, "菜单已过期或不属于你，请发送 /menu 重新打开。")
+		}
+		return s.GroupMenu(ctx, m, data)
+	}
 	if strings.HasPrefix(c.Data, "gm:") {
-		return s.GroupMenu(ctx, m, c.Data)
+		return s.text(ctx, m.Chat.ID, "旧版菜单已更新，请发送 /menu 重新打开。")
 	}
 	if strings.HasPrefix(c.Data, "menu:groups:") {
 		before, e := strconv.ParseInt(strings.TrimPrefix(c.Data, "menu:groups:"), 10, 64)
