@@ -28,7 +28,7 @@ func ParseCommand(text, username string) (command, arg string, ok bool) {
 	return strings.ToLower(name), strings.TrimSpace(tail), true
 }
 func (s *Service) Command(ctx context.Context, update int64, m domain.Message, command, arg string) error {
-	if m.From == nil {
+	if m.From == nil || command == "help" {
 		return nil
 	}
 	if m.Chat.Type == "private" && (command == "approve" || command == "reject" || command == "revoke") {
@@ -67,8 +67,6 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 			return s.text(ctx, m.Chat.ID, "新人验证无需发送命令。请回到群内，点击入群提示中的验证按钮，再按私聊题目提示完成验证。按钮失效或找不到提示时，请联系群管理员。")
 		case "cancel":
 			return s.CancelGroupInput(ctx, m)
-		case "help":
-			return s.PrivateSection(ctx, m, "help")
 		case "groups":
 			return s.MyGroups(ctx, m, 0)
 		case "settings", "rules", "stats", "keywords", "whitelist", "blacklist":
@@ -91,7 +89,7 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 	switch command {
 	case "version":
 		return s.text(ctx, m.Chat.ID, buildinfo.Label())
-	case "help", "start":
+	case "start":
 		if m.Chat.Type == "supergroup" {
 			return s.GroupHelp(ctx, m)
 		}

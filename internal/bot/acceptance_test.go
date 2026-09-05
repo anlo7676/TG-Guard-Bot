@@ -501,7 +501,7 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			t.Fatal(e)
 		}
 		for _, user := range []int64{42, 77} {
-			if e := svc.Command(ctx, 980, message("/help", user), "help", ""); e != nil {
+			if e := svc.Command(ctx, 980, message("/start", user), "start", ""); e != nil {
 				t.Fatal(e)
 			}
 			out := lastSend()
@@ -520,7 +520,7 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		if e := db.ChangeSettings(ctx, chat.ID, 42, func(v *domain.Settings) error { v.AIEnabled = true; v.VerificationEnabled = false; return nil }); e != nil {
 			t.Fatal(e)
 		}
-		if e := svc.Command(ctx, 981, message("/help", 77), "help", ""); e != nil {
+		if e := svc.Command(ctx, 981, message("/start", 77), "start", ""); e != nil {
 			t.Fatal(e)
 		}
 		text := fmt.Sprint(lastSend()["text"])
