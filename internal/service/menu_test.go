@@ -42,3 +42,33 @@ func TestMenuDoesNotAcceptAnotherUsersPrivateChat(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestRegisteredGroupMenusDoNotOfferVerificationCommand(t *testing.T) {
+	scopes := map[string]bool{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in map[string]any
+		if e := json.NewDecoder(r.Body).Decode(&in); e != nil {
+			t.Fatal(e)
+		}
+		if r.URL.Path == "/setMyCommands" {
+			scope := in["scope"].(map[string]any)["type"].(string)
+			scopes[scope] = true
+			for _, raw := range in["commands"].([]any) {
+				if raw.(map[string]any)["command"] == "verify" {
+					t.Error("unusable verification command registered", scope)
+				}
+			}
+		}
+		w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer srv.Close()
+	s := &Service{Bot: &telegram.Client{BaseURL: srv.URL, HTTP: srv.Client()}}
+	if e := s.RegisterMenus(context.Background()); e != nil {
+		t.Fatal(e)
+	}
+	for _, scope := range []string{"all_group_chats", "all_chat_administrators", "all_private_chats"} {
+		if !scopes[scope] {
+			t.Error("menu scope not updated", scope)
+		}
+	}
+}

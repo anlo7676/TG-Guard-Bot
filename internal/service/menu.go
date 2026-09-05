@@ -13,7 +13,7 @@ func (s *Service) RegisterMenus(ctx context.Context) error {
 	if e := s.Bot.Call(ctx, "setMyCommands", map[string]any{"commands": common, "scope": map[string]string{"type": "all_private_chats"}}, nil); e != nil {
 		return e
 	}
-	group := []map[string]string{{"command": "check", "description": "回复消息进行 AI 审核"}, {"command": "verify", "description": "查看验证状态"}, {"command": "id", "description": "查看用户和群 ID"}, {"command": "help", "description": "使用帮助"}}
+	group := []map[string]string{{"command": "check", "description": "回复消息进行 AI 审核"}, {"command": "id", "description": "查看用户和群 ID"}, {"command": "help", "description": "使用帮助"}}
 	if e := s.Bot.Call(ctx, "setMyCommands", map[string]any{"commands": group, "scope": map[string]string{"type": "all_group_chats"}}, nil); e != nil {
 		return e
 	}
@@ -68,7 +68,12 @@ func (s *Service) PrivateSection(ctx context.Context, m domain.Message, section 
 	case "ai":
 		text = "AI 接口设置\n\n在 Web 面板 → AI 接口填写：\n• API Base URL（含 /v1）\n• 模型名称\n• API Key\n\n保存并启用全局 AI 后，还需到「群管理」打开目标群的 AI 审核。Key 加密保存，不通过私聊显示。\n后台：" + panel
 	case "help":
-		text = "使用流程\n\n① 将机器人添加到超级群并设为管理员，授予删除消息、限制成员权限。\n② 联系部署者在网页后台「群组列表」审批授权，通过后点击「我的群组」选择群组，设置本群验证、审核和处罚；也可在群里发送 /settings 直达本群菜单。\n③ 新成员通过群内链接进行私聊验证。\n④ 回复可疑消息发送 /check 进行 AI 复核。\n\n/groups 我的群组\n/menu 主菜单\n/id 我的 ID\n\n群管理员只能管理已获授权的群，不能自行审批。机器人超级管理员可私聊使用 /approve 群ID、/reject 群ID、/revoke 群ID（可附原因）。"
+		text = "使用帮助\n\n新成员\n点击群内入群提示的验证按钮，进入私聊后按题目提示作答。无需在群里发命令；链接失效或找不到提示，请联系群管理员。\n\n群管理员\n点击「我的群组」选择群，再用按钮设置新人验证、审核规则和关键词回复。也可以在目标群发送 /settings 直达该群设置。\n\n接入新群\n把机器人设为群管理员，并授予删除消息、限制成员权限；联系部署者批准接入后，群管理才会启用。\n\n模型接口和机器人超级管理员由部署者在网页后台设置。"
+		if s.IsSuperAdmin(m.From.ID) {
+			text += "\n\n机器人超级管理员\n私聊 /approve 群ID 批准接入；/reject 群ID 拒绝；/revoke 群ID 撤销授权。命令后可附原因。"
+		}
+		return s.groupMenuSend(ctx, m.Chat.ID, text, [][]menuButton{{button("我的群组 / 群设置", "menu:groups"), button("主菜单", "menu:home")}})
+
 	default:
 		return s.Home(ctx, m)
 	}

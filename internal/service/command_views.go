@@ -87,10 +87,3 @@ func (s *Service) listSummary(ctx context.Context, m domain.Message, kind string
 	}
 	return s.commandMenuLink(ctx, m, kind, text)
 }
-func verificationStatus(status string) string {
-	label := map[string]string{"pending": "等待验证", "completing": "答案正确，正在解除限制", "expiring": "已超时，正在处理", "releasing": "正在取消验证并解除限制", "verified": "已通过", "cancelled": "已取消", "expired": "已过期", "left": "已离群", "blocked": "已拦截"}[status]
-	if label == "" {
-		return "处理中"
-	}
-	return label
-}

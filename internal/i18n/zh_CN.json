@@ -1,5 +1,5 @@
 {
-  "help": "TG Guard 智能群管机器人\n入群后点击验证链接，在私聊完成验证。\n回复消息使用 /check 或 @机器人 可查询风险。\n管理员命令：/settings /stats /rules /keywords /whitelist /blacklist /warn /mute /unmute /ban /unban\n/id 查看 ID；/verify 查看验证状态。",
+  "help": "TG Guard 使用帮助\n\n新人验证：点击群内入群提示中的验证按钮，到私聊按题目提示完成验证。链接失效请联系群管理员。\n\n群管理员：私聊机器人发送 /settings，选择已授权群组后使用菜单设置。",
   "welcome": "欢迎 %s！请在 %d 秒内点击按钮，到私聊完成验证。",
   "verify_button": "点击进行验证",
   "human_question": "请选择“我是人类”",

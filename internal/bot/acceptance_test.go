@@ -495,6 +495,53 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("help matches group configuration and caller role", func(t *testing.T) {
+		if e := db.ChangeSettings(ctx, chat.ID, 42, func(v *domain.Settings) error { v.AIEnabled = false; v.VerificationEnabled = true; return nil }); e != nil {
+			t.Fatal(e)
+		}
+		for _, user := range []int64{42, 77} {
+			if e := svc.Command(ctx, 980, message("/help", user), "help", ""); e != nil {
+				t.Fatal(e)
+			}
+			out := lastSend()
+			text := fmt.Sprint(out["text"])
+			if strings.Contains(text, "/verify") || !strings.Contains(text, "点击欢迎消息中的验证按钮") || !strings.Contains(text, "尚未开启手动 AI 复核") {
+				t.Fatal("misleading help", text)
+			}
+			if strings.Contains(text, "群管理员操作") != (user == 42) {
+				t.Fatal("help role mismatch", text)
+			}
+			raw, _ := json.Marshal(out)
+			if strings.Contains(string(raw), "本群设置") != (user == 42) {
+				t.Fatal("settings button role mismatch")
+			}
+		}
+		if e := db.ChangeSettings(ctx, chat.ID, 42, func(v *domain.Settings) error { v.AIEnabled = true; v.VerificationEnabled = false; return nil }); e != nil {
+			t.Fatal(e)
+		}
+		if e := svc.Command(ctx, 981, message("/help", 77), "help", ""); e != nil {
+			t.Fatal(e)
+		}
+		text := fmt.Sprint(lastSend()["text"])
+		if !strings.Contains(text, "未开启新人验证") || !strings.Contains(text, "/check") {
+			t.Fatal("help ignored settings", text)
+		}
+		private := domain.Message{Chat: domain.Chat{ID: 77, Type: "private"}, From: &domain.User{ID: 77}}
+		if e := svc.Command(ctx, 982, private, "start", "help"); e != nil {
+			t.Fatal(e)
+		}
+		text = fmt.Sprint(lastSend()["text"])
+		if !strings.Contains(text, "使用帮助") || strings.Contains(text, "/approve") || strings.Contains(text, "/verify") {
+			t.Fatal("wrong private help", text)
+		}
+		if e := svc.Command(ctx, 983, message("/verify", 77), "verify", ""); e != nil {
+			t.Fatal(e)
+		}
+		if !strings.Contains(fmt.Sprint(lastSend()["text"]), "无需在群里发送命令") {
+			t.Fatal("legacy verify not redirected")
+		}
+	})
 	t.Run("expired menu and revoked permission", func(t *testing.T) {
 		m := domain.Message{Chat: domain.Chat{ID: 42, Type: "private"}, From: &domain.User{ID: 42}}
 		if err := svc.GroupMenu(ctx, m, "gm:-1001:home"); err != nil {

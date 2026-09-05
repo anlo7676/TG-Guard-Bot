@@ -1,5 +1,5 @@
 {
-  "help": "TG Guard\nComplete new-member verification in private chat.\nReply with /check or @bot to review a message.\nAdmin: /settings /stats /rules /keywords /whitelist /blacklist /warn /mute /unmute /ban /unban\n/id shows IDs; /verify shows verification status.",
+  "help": "TG Guard help\n\nNew members: use the verification button in the group welcome message and follow the private challenge. Contact a group administrator if the link expires.\n\nGroup administrators: send /settings in private chat to select an approved group and configure it using the menu.",
   "welcome": "Welcome %s! Open the button and verify in private chat within %d seconds.",
   "verify_button": "Verify now",
   "human_question": "Select 'I am human'",

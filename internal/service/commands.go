@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strconv"
 	"strings"
@@ -47,6 +46,9 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 	}
 	lang := "zh_CN"
 	if m.Chat.Type == "private" {
+		if command == "start" && arg == "help" {
+			return s.PrivateSection(ctx, m, "help")
+		}
 		if command == "start" && strings.HasPrefix(arg, "group_") {
 			target := strings.SplitN(strings.TrimPrefix(arg, "group_"), "_", 2)
 			section := "home"
@@ -62,7 +64,7 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 		case "start", "menu":
 			return s.Home(ctx, m)
 		case "verify":
-			return s.text(ctx, m.Chat.ID, "请点击群内的验证链接，在对应题目下回复答案；在群里发送 /verify 可查看本群验证状态。")
+			return s.text(ctx, m.Chat.ID, "新人验证无需发送命令。请回到群内，点击入群提示中的验证按钮，再按私聊题目提示完成验证。按钮失效或找不到提示时，请联系群管理员。")
 		case "cancel":
 			return s.CancelGroupInput(ctx, m)
 		case "help":
@@ -90,6 +92,9 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 	case "version":
 		return s.text(ctx, m.Chat.ID, buildinfo.Label())
 	case "help", "start":
+		if m.Chat.Type == "supergroup" {
+			return s.GroupHelp(ctx, m)
+		}
 		return s.Say(ctx, m.Chat.ID, lang, "help")
 	case "id":
 		text := fmt.Sprintf("chat_id: %d\nuser_id: %d\nmessage_id: %d", m.Chat.ID, m.From.ID, m.ID)
@@ -114,16 +119,7 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 		return s.Review(ctx, update, m)
 	}
 	if command == "verify" {
-		v, e := s.Store.ActiveVerification(ctx, m.Chat.ID, m.From.ID)
-		if e == sql.ErrNoRows {
-			_, e = s.Bot.Send(ctx, m.Chat.ID, "没有进行中的验证。", nil, m.ID)
-			return e
-		}
-		if e != nil {
-			return e
-		}
-		_, e = s.Bot.Send(ctx, m.Chat.ID, fmt.Sprintf("验证状态：%s\n截止时间：%s（UTC）\n请从群内验证链接进入私聊完成验证。", verificationStatus(v.Status), v.ExpiresAt.UTC().Format("2006-01-02 15:04:05")), nil, m.ID)
-		return e
+		return s.text(ctx, m.Chat.ID, "新人验证无需在群里发送命令。请点击入群提示中的验证按钮，在私聊中完成验证；验证链接失效时联系群管理员。")
 	}
 	admin, e := s.Admin(ctx, m.Chat.ID, m.From.ID)
 	if e != nil {
