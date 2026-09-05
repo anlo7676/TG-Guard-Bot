@@ -110,6 +110,9 @@ func (u Update) Partition() int64 {
 }
 
 type Settings struct {
+	WelcomeEnabled         bool                   `json:"welcome_enabled"`
+	WelcomeText            string                 `json:"welcome_text"`
+	AdRules                []AdRule               `json:"ad_rules"`
 	VerificationEnabled    bool                   `json:"verification_enabled"`
 	VerificationTimeout    int                    `json:"verification_timeout"`
 	VerificationType       string                 `json:"verification_type"`
@@ -142,14 +145,18 @@ type Settings struct {
 	Rules                  map[string]RuleSetting `json:"rules"`
 }
 type RuleSetting struct {
-	Enabled bool `json:"enabled"`
-	Score   int  `json:"score"`
+	Action  string `json:"action,omitempty"`
+	Enabled bool   `json:"enabled"`
+	Score   int    `json:"score"`
 }
 
 func DefaultSettings() Settings {
-	return Settings{VerificationEnabled: true, VerificationTimeout: 180, VerificationType: "math", VerificationFailAction: "kick", ModerationEnabled: true, AIThreshold: 50, DirectThreshold: 80, AIWarnConfidence: .6, AIDeleteConfidence: .8, AIMuteConfidence: .95, SpamEnabled: true, RateLimit: 5, RateWindow: 10, DuplicateLimit: 3, KeywordEnabled: true, AutoDelete: true, AutoWarn: true, AutoMute: true, MuteSeconds: 3600, MuteAfter: 2, BanAfter: 3, NewMemberProtection: true, AdminBypass: true, ReviewAccess: "all", Language: "zh_CN", Rules: map[string]RuleSetting{}}
+	return Settings{WelcomeEnabled: true, WelcomeText: "欢迎 {name} 加入 {group}！", AdRules: []AdRule{}, VerificationEnabled: true, VerificationTimeout: 180, VerificationType: "math", VerificationFailAction: "kick", ModerationEnabled: true, AIThreshold: 50, DirectThreshold: 80, AIWarnConfidence: .6, AIDeleteConfidence: .8, AIMuteConfidence: .95, SpamEnabled: true, RateLimit: 5, RateWindow: 10, DuplicateLimit: 3, KeywordEnabled: true, AutoDelete: true, AutoWarn: true, AutoMute: true, MuteSeconds: 3600, MuteAfter: 2, BanAfter: 3, NewMemberProtection: true, AdminBypass: true, ReviewAccess: "all", Language: "zh_CN", Rules: map[string]RuleSetting{}}
 }
 func (s Settings) Validate() error {
+	if e := s.validateLocalSettings(); e != nil {
+		return e
+	}
 	if s.VerificationTimeout < 30 || s.VerificationTimeout > 3600 || (s.VerificationType != "math" && s.VerificationType != "button") || !one(s.VerificationFailAction, "kick", "ban", "mute") {
 		return errors.New("invalid verification settings")
 	}
@@ -198,9 +205,10 @@ type Match struct {
 	Reason string `json:"reason"`
 }
 type Risk struct {
-	Score   int     `json:"score"`
-	Matches []Match `json:"matched_rules"`
-	Spam    bool    `json:"spam"`
+	LocalAction string  `json:"local_action,omitempty"`
+	Score       int     `json:"score"`
+	Matches     []Match `json:"matched_rules"`
+	Spam        bool    `json:"spam"`
 }
 type AIResult struct {
 	IsAd              bool    `json:"is_ad"`

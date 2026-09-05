@@ -94,6 +94,8 @@ func settingPatch(v *domain.Settings, key, value string) error {
 			return fmt.Errorf("无效选项")
 		}
 		value = strconv.Quote(value)
+	case "text":
+		value = strconv.Quote(value)
 	case "number":
 		if !json.Valid([]byte(value)) {
 			return fmt.Errorf("请输入数字")
@@ -146,6 +148,13 @@ func (s *Service) GroupReply(ctx context.Context, m domain.Message) (bool, error
 	switch p.Action {
 	case "setting":
 		err = s.Store.ChangeSettings(ctx, p.Chat, m.From.ID, func(v *domain.Settings) error { return settingPatch(v, p.Key, value) })
+	case "adRules":
+		var rules []domain.AdRule
+		rules, err = domain.ParseAdRules(value)
+		if err == nil {
+			err = s.Store.ChangeSettings(ctx, p.Chat, m.From.ID, func(v *domain.Settings) error { v.AdRules = rules; return nil })
+		}
+		section = "rules"
 	case "rule":
 		var score int
 		score, err = strconv.Atoi(value)

@@ -542,6 +542,137 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			t.Fatal("legacy verify not redirected")
 		}
 	})
+
+	t.Run("local ad enforcement welcome settings and ban cleanup", func(t *testing.T) {
+		if e := db.ChangeSettings(ctx, other.ID, 42, func(v *domain.Settings) error {
+			v.VerificationEnabled = false
+			v.WelcomeEnabled = true
+			v.WelcomeText = "欢迎 {name} 来到 {group}，你的 ID 是 {user_id}"
+			v.AIEnabled = false
+			v.SpamEnabled = false
+			v.AutoDelete = false
+			v.AutoMute = false
+			v.AutoBan = false
+			v.AutoWarn = false
+			return nil
+		}); e != nil {
+			t.Fatal(e)
+		}
+		newcomer := domain.User{ID: 98, FirstName: "新伙伴"}
+		sends := count("sendMessage")
+		if e := svc.Join(ctx, other, newcomer); e != nil {
+			t.Fatal(e)
+		}
+		if e := svc.Join(ctx, other, newcomer); e != nil {
+			t.Fatal(e)
+		}
+		text := fmt.Sprint(lastSend()["text"])
+		if !strings.Contains(text, "欢迎 新伙伴 来到 Acceptance B") || count("sendMessage") != sends+1 {
+			t.Fatal("welcome template/dedup failed", text)
+		}
+		if e := db.Leave(ctx, other.ID, 98); e != nil {
+			t.Fatal(e)
+		}
+		if e := svc.Join(ctx, other, newcomer); e != nil {
+			t.Fatal(e)
+		}
+		if count("sendMessage") != sends+2 {
+			t.Fatal("rejoin not welcomed")
+		}
+		for i, action := range []string{"delete", "mute", "ban"} {
+			if e := db.ChangeSettings(ctx, other.ID, 42, func(v *domain.Settings) error {
+				v.AdRules = []domain.AdRule{{Pattern: "测试广告", Mode: "contains", Action: action, Enabled: true}}
+				return nil
+			}); e != nil {
+				t.Fatal(e)
+			}
+			msg := domain.Message{ID: int64(9000 + i), Chat: other, From: &domain.User{ID: int64(90 + i)}, Text: "这里有测试广告"}
+			event := int64(60000 + i)
+			deleted, banned, muted := count("deleteMessage"), count("banChatMember"), count("restrictChatMember")
+			if e := svc.Moderate(ctx, event, msg); e != nil {
+				t.Fatal(e)
+			}
+			log, e := db.GetLog(ctx, fmt.Sprintf("auto:%d", event))
+			if e != nil || log.Decision.Action != action || !log.Decision.Delete {
+				t.Fatal("wrong local enforcement", log, e)
+			}
+			if count("deleteMessage") != deleted+1 {
+				t.Fatal("ad message not deleted")
+			}
+			if action == "mute" && count("restrictChatMember") != muted+1 {
+				t.Fatal("ad author not muted")
+			}
+			if action == "ban" && count("banChatMember") != banned+1 {
+				t.Fatal("ad author not banned")
+			}
+			if e := svc.Moderate(ctx, event, msg); e != nil {
+				t.Fatal(e)
+			}
+			if count("deleteMessage") != deleted+1 {
+				t.Fatal("retry duplicated punishment")
+			}
+		}
+		private := domain.Message{Chat: domain.Chat{ID: 42, Type: "private"}, From: &domain.User{ID: 42}}
+		if e := svc.GroupMenu(ctx, private, "gm:-1002:field:welcome_text"); e != nil {
+			t.Fatal(e)
+		}
+		mu.Lock()
+		prompt := mid
+		mu.Unlock()
+		private.Reply = &domain.Message{ID: prompt, From: &domain.User{ID: 900}}
+		private.Text = "你好 {name}，欢迎加入 {group}"
+		handle(private)
+		configured, e := db.Settings(ctx, other.ID)
+		if e != nil || configured.WelcomeText != private.Text {
+			t.Fatal("private welcome editor failed", e)
+		}
+		private.Reply = nil
+		if e := svc.GroupMenu(ctx, private, "gm:-1002:adEdit"); e != nil {
+			t.Fatal(e)
+		}
+		mu.Lock()
+		prompt = mid
+		mu.Unlock()
+		private.Reply = &domain.Message{ID: prompt, From: &domain.User{ID: 900}}
+		private.Text = "正则|禁言|优惠(领取|代购)"
+		handle(private)
+		configured, e = db.Settings(ctx, other.ID)
+		if e != nil || len(configured.AdRules) != 1 || configured.AdRules[0].Mode != "regex" {
+			t.Fatal("private ad editor failed", e)
+		}
+		if e := db.ChangeSettings(ctx, other.ID, 42, func(v *domain.Settings) error { v.WelcomeEnabled = false; v.VerificationEnabled = true; return nil }); e != nil {
+			t.Fatal(e)
+		}
+		if e := svc.Join(ctx, other, domain.User{ID: 97, FirstName: "待验证"}); e != nil {
+			t.Fatal(e)
+		}
+		out := lastSend()
+		if !strings.Contains(fmt.Sprint(out["text"]), "验证按钮") || out["reply_markup"] == nil || strings.Contains(fmt.Sprint(out["text"]), "你好") {
+			t.Fatal("disabling welcome removed verification entry")
+		}
+		m := domain.Message{Chat: other, From: &domain.User{ID: 42}, Reply: &domain.Message{ID: 8999, From: &domain.User{ID: 99}}}
+		if e := svc.Command(ctx, 61000, m, "ban", ""); e != nil {
+			t.Fatal(e)
+		}
+		mu.Lock()
+		found := false
+		for _, c := range calls {
+			if c.Method == "banChatMember" && c.Body["user_id"] == float64(99) {
+				found = c.Body["revoke_messages"] == true && c.Body["chat_id"] == float64(other.ID)
+			}
+		}
+		mu.Unlock()
+		if !found {
+			t.Fatal("manual ban did not request all user messages cleared")
+		}
+		m.From = &domain.User{ID: 77}
+		if e := svc.Command(ctx, 61001, m, "id", ""); e != nil {
+			t.Fatal(e)
+		}
+		if !strings.Contains(fmt.Sprint(lastSend()["text"]), "私聊") {
+			t.Fatal("ordinary member ID command not redirected")
+		}
+	})
 	t.Run("expired menu and revoked permission", func(t *testing.T) {
 		m := domain.Message{Chat: domain.Chat{ID: 42, Type: "private"}, From: &domain.User{ID: 42}}
 		if err := svc.GroupMenu(ctx, m, "gm:-1001:home"); err != nil {

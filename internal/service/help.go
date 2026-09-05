@@ -29,7 +29,7 @@ func (s *Service) GroupHelp(ctx context.Context, m domain.Message) error {
 	}
 	rows := [][]menuButton{}
 	if admin {
-		text += "\n\n群管理员操作\n• 点击下方「本群设置」，在私聊中配置验证、审核规则、关键词和黑白名单。\n• 回复目标成员的消息后发送 /warn 警告、/mute 1h 禁言一小时、/unmute 解除禁言，或 /ban 封禁。\n• /unban 用户ID 可解除封禁；/stats 查看群统计。"
+		text += "\n\n群管理员操作\n• 点击下方「本群设置」，在私聊中配置验证、审核规则、关键词和黑白名单。\n• 回复目标成员的消息后发送 /warn 警告、/mute 1h 禁言一小时、/unmute 解除禁言，或 /ban 封禁并清理该用户在本群的全部发言。\n• /unban 用户ID 可解除封禁；/stats 查看群统计。"
 		rows = append(rows, []menuButton{{"text": "本群设置", "url": fmt.Sprintf("https://t.me/%s?start=group_%d", s.Bot.Username, m.Chat.ID)}})
 	}
 	rows = append(rows, []menuButton{{"text": "打开机器人私聊", "url": "https://t.me/" + s.Bot.Username + "?start=help"}})

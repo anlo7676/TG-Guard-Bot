@@ -13,11 +13,11 @@ func (s *Service) RegisterMenus(ctx context.Context) error {
 	if e := s.Bot.Call(ctx, "setMyCommands", map[string]any{"commands": common, "scope": map[string]string{"type": "all_private_chats"}}, nil); e != nil {
 		return e
 	}
-	group := []map[string]string{{"command": "check", "description": "回复消息进行 AI 审核"}, {"command": "id", "description": "查看用户和群 ID"}, {"command": "help", "description": "使用帮助"}}
+	group := []map[string]string{{"command": "check", "description": "回复消息进行 AI 审核"}, {"command": "help", "description": "使用帮助"}}
 	if e := s.Bot.Call(ctx, "setMyCommands", map[string]any{"commands": group, "scope": map[string]string{"type": "all_group_chats"}}, nil); e != nil {
 		return e
 	}
-	admin := append(append([]map[string]string{}, group...), []map[string]string{{"command": "settings", "description": "打开本群管理菜单"}, {"command": "menu", "description": "打开本群管理菜单"}, {"command": "rules", "description": "查看本群审核规则"}, {"command": "warn", "description": "回复消息警告用户"}, {"command": "unmute", "description": "回复消息解除禁言"}, {"command": "unban", "description": "解除用户封禁"}, {"command": "stats", "description": "群统计"}, {"command": "keywords", "description": "关键词回复"}, {"command": "whitelist", "description": "白名单"}, {"command": "blacklist", "description": "黑名单"}, {"command": "mute", "description": "回复消息禁言用户"}, {"command": "ban", "description": "回复消息封禁用户"}}...)
+	admin := append(append([]map[string]string{}, group...), []map[string]string{{"command": "id", "description": "查看管理所需的群和用户 ID"}, {"command": "settings", "description": "打开本群管理菜单"}, {"command": "menu", "description": "打开本群管理菜单"}, {"command": "rules", "description": "查看本群审核规则"}, {"command": "warn", "description": "回复消息警告用户"}, {"command": "unmute", "description": "回复消息解除禁言"}, {"command": "unban", "description": "解除用户封禁"}, {"command": "stats", "description": "群统计"}, {"command": "keywords", "description": "关键词回复"}, {"command": "whitelist", "description": "白名单"}, {"command": "blacklist", "description": "黑名单"}, {"command": "mute", "description": "回复消息禁言用户"}, {"command": "ban", "description": "封禁用户并清理其全部群发言"}}...)
 	if e := s.Bot.Call(ctx, "setMyCommands", map[string]any{"commands": admin, "scope": map[string]string{"type": "all_chat_administrators"}}, nil); e != nil {
 		return e
 	}

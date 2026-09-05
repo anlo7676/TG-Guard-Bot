@@ -24,6 +24,9 @@ func (s *Service) groupAction(ctx context.Context, m domain.Message, chat int64,
 		if e != nil {
 			return true, e
 		}
+		if f.Kind == "text" {
+			return true, s.promptGroup(ctx, m, chat, "setting", f.Key, "设置欢迎语，最多 1000 字。支持 {name} 成员名称、{username} 用户名、{user_id} 用户 ID、{group} 群名、{timeout} 验证秒数。验证按钮会自动附加。\n当前："+v.WelcomeText)
+		}
 		if f.Kind == "number" {
 			return true, s.promptGroup(ctx, m, chat, "setting", f.Key, "设置"+f.Label+"，当前："+displayValue(settingValues(v)[f.Key]))
 		}
@@ -44,6 +47,40 @@ func (s *Service) groupAction(ctx context.Context, m domain.Message, chat int64,
 		}
 		rows = append(rows, []menuButton{button("取消", prefix+"settings")})
 		return true, s.groupMenuSend(ctx, m.Chat.ID, fmt.Sprintf("群 %d\n%s\n当前：%s\n请选择新的值。", chat, f.Label, displayValue(settingValues(v)[f.Key])), rows)
+	case "adEdit":
+		v, e := s.Store.Settings(ctx, chat)
+		if e != nil {
+			return true, e
+		}
+		current := domain.FormatAdRules(v.AdRules)
+		if len([]rune(current)) > 2200 {
+			return true, s.text(ctx, m.Chat.ID, "当前广告词库较长，请到网页后台「群管理 → 配置群组」编辑，避免私聊输入长度限制。")
+		}
+		if current == "" {
+			current = "（暂无）"
+		}
+		return true, s.promptGroup(ctx, m, chat, "adRules", "", "当前广告词库：\n"+current+"\n\n编辑本群广告词库（替换全部自定义规则）：每行填写 匹配方式|动作|匹配内容。\n匹配方式：包含、精确、正则；动作：删除、禁言、封禁。\n例：包含|禁言|稳赚包赔\n停用例：停用包含|删除|广告词\n输入 清空 删除全部自定义规则。欢迎语在群设置的「入群欢迎语」中设置。")
+	case "ruleAction":
+		if len(p) != 5 || !knownRule(p[3]) {
+			return true, nil
+		}
+		action := p[4]
+		if action == "score" {
+			action = ""
+		}
+		if !domain.ValidRuleAction(action) {
+			return true, nil
+		}
+		e := s.Store.ChangeSettings(ctx, chat, m.From.ID, func(v *domain.Settings) error {
+			r := ruleValue(*v, p[3])
+			r.Action = action
+			v.Rules[p[3]] = r
+			return nil
+		})
+		if e != nil {
+			return true, e
+		}
+		return true, s.GroupMenu(ctx, m, prefix+"rules")
 	case "rule":
 		if len(p) != 4 || !knownRule(p[3]) {
 			return true, nil
@@ -54,7 +91,7 @@ func (s *Service) groupAction(ctx context.Context, m domain.Message, chat int64,
 		}
 		r := ruleValue(v, p[3])
 		next := strconv.FormatBool(!r.Enabled)
-		return true, s.groupMenuSend(ctx, m.Chat.ID, fmt.Sprintf("群 %d\n规则 %s：%s，风险加分 %d", chat, p[3], displayValue(r.Enabled), r.Score), [][]menuButton{{button("切换启用状态", prefix+"ruleSet:"+p[3]+":"+next), button("修改风险分", prefix+"ruleScore:"+p[3])}, {button("返回规则", prefix+"rules")}})
+		return true, s.groupMenuSend(ctx, m.Chat.ID, fmt.Sprintf("群 %d\n规则 %s：%s，风险加分 %d\n命中动作：%s", chat, p[3], displayValue(r.Enabled), r.Score, ruleActionLabel(r.Action)), [][]menuButton{{button("切换启用状态", prefix+"ruleSet:"+p[3]+":"+next), button("修改风险分", prefix+"ruleScore:"+p[3])}, {button("仅累计评分", prefix+"ruleAction:"+p[3]+":score"), button("命中即删除", prefix+"ruleAction:"+p[3]+":delete")}, {button("删除并禁言", prefix+"ruleAction:"+p[3]+":mute"), button("封禁并清理发言", prefix+"ruleAction:"+p[3]+":ban")}, {button("返回规则", prefix+"rules")}})
 	case "ruleSet":
 		if len(p) != 5 || !knownRule(p[3]) || (p[4] != "true" && p[4] != "false") {
 			return true, nil

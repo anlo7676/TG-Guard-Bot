@@ -80,3 +80,19 @@ func TestNetworkErrorDoesNotLeakToken(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestBanRequestsAllUserMessagesRevoked(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		if r.URL.Path != "/banChatMember" || body["chat_id"] != float64(-100) || body["user_id"] != float64(77) || body["revoke_messages"] != true {
+			t.Error("ban must clear target user's group messages", body)
+		}
+		w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer srv.Close()
+	c := &Client{BaseURL: srv.URL, HTTP: srv.Client()}
+	if e := c.Ban(context.Background(), -100, 77); e != nil {
+		t.Fatal(e)
+	}
+}

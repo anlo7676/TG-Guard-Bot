@@ -36,9 +36,6 @@ func (s *Service) Join(ctx context.Context, chat domain.Chat, u domain.User) err
 	if e != nil {
 		return e
 	}
-	if protected {
-		return nil
-	}
 	settings, e := s.Store.Settings(ctx, chat.ID)
 	if e != nil {
 		return e
@@ -50,8 +47,8 @@ func (s *Service) Join(ctx context.Context, chat domain.Chat, u domain.User) err
 	if kind == "black" {
 		return s.Punish(ctx, store.Log{EventKey: fmt.Sprintf("blackjoin:%d:%d:%d", chat.ID, u.ID, time.Now().Unix()/60), ChatID: chat.ID, UserID: u.ID, Decision: domain.Decision{Action: "ban", Reason: "blacklist"}, Source: "blacklist"}, 0)
 	}
-	if !settings.VerificationEnabled {
-		return nil
+	if protected || !settings.VerificationEnabled {
+		return s.welcomeOnly(ctx, chat, u, settings)
 	}
 	unlock, e := s.State.Lock(ctx, verifyLock(chat.ID, u.ID), 60*time.Second)
 	if e != nil {
@@ -104,7 +101,7 @@ func (s *Service) Join(ctx context.Context, chat domain.Chat, u domain.User) err
 	}
 	if v.PromptID == 0 {
 		markup := map[string]any{"inline_keyboard": [][]map[string]string{{{"text": i18n.Text(settings.Language, "verify_button"), "url": "https://t.me/" + s.Bot.Username + "?start=verify_" + v.Token}}}}
-		id, e := s.Bot.Send(ctx, chat.ID, i18n.Text(settings.Language, "welcome", u.FirstName, settings.VerificationTimeout), markup, 0)
+		id, e := s.Bot.Send(ctx, chat.ID, welcomeText(settings, chat, u, true), markup, 0)
 		if e != nil {
 			return e
 		}

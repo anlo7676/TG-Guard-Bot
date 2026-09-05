@@ -161,7 +161,7 @@ func (c *Client) Restore(ctx context.Context, chat, user int64) error {
 	return c.Call(ctx, "restrictChatMember", map[string]any{"chat_id": chat, "user_id": user, "permissions": ch.Permissions, "use_independent_chat_permissions": true}, nil)
 }
 func (c *Client) Ban(ctx context.Context, chat, user int64) error {
-	return c.Call(ctx, "banChatMember", map[string]any{"chat_id": chat, "user_id": user, "revoke_messages": false}, nil)
+	return c.Call(ctx, "banChatMember", map[string]any{"chat_id": chat, "user_id": user, "revoke_messages": true}, nil)
 }
 func (c *Client) Unban(ctx context.Context, chat, user int64) error {
 	return c.Call(ctx, "unbanChatMember", map[string]any{"chat_id": chat, "user_id": user, "only_if_banned": true}, nil)

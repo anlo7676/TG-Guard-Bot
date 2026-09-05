@@ -19,9 +19,9 @@ func rulesSummary(v domain.Settings) string {
 	text := fmt.Sprintf("本群审核规则\n消息审核：%s\nAI 审核：%s（触发风险分 %d）\n直接处理风险分：%d\n", displayValue(v.ModerationEnabled), displayValue(v.AIEnabled), v.AIThreshold, v.DirectThreshold)
 	for _, r := range menuRules {
 		value := ruleValue(v, r.Key)
-		text += fmt.Sprintf("\n• %s：%s · %d 分", r.Label, displayValue(value.Enabled), value.Score)
+		text += fmt.Sprintf("\n• %s：%s · %d 分", r.Label, displayValue(value.Enabled), value.Score) + " · " + ruleActionLabel(value.Action)
 	}
-	return text
+	return text + fmt.Sprintf("\n自定义广告规则：%d 条。点击按钮设置命中动作。", len(v.AdRules))
 }
 func (s *Service) statsSummary(ctx context.Context, chat int64) (string, error) {
 	rows, e := s.Store.Rows(ctx, "SELECT (SELECT COUNT(*) FROM group_members WHERE chat_id=? AND left_at IS NULL) AS known_members,(SELECT COUNT(*) FROM moderation_logs WHERE chat_id=?) AS reviewed_messages,(SELECT COUNT(*) FROM punishments WHERE chat_id=? AND status='done') AS punishments", chat, chat, chat)

@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"unicode"
@@ -109,6 +110,7 @@ func Evaluate(n domain.Normalized, s domain.Settings) domain.Risk {
 		if matched {
 			r.Score += score
 			r.Matches = append(r.Matches, domain.Match{Rule: name, Score: score, Reason: reason})
+			r.LocalAction = strongerAction(r.LocalAction, s.Rules[name].Action)
 		}
 	}
 	joined := n.Text + " " + strings.Join(n.URLs, " ")
@@ -143,6 +145,28 @@ func Evaluate(n domain.Normalized, s domain.Settings) domain.Risk {
 		r.Score += 30
 		r.Matches = append(r.Matches, domain.Match{Rule: "first_contact", Score: 30, Reason: "首条消息含联系方式"})
 	}
+	for i, rule := range s.AdRules {
+		if !rule.Enabled {
+			continue
+		}
+		matched := false
+		switch rule.Mode {
+		case "contains":
+			matched = Clean(rule.Pattern) != "" && strings.Contains(n.Text, Clean(rule.Pattern))
+		case "exact":
+			matched = Clean(rule.Pattern) != "" && n.Text == Clean(rule.Pattern)
+		case "regex":
+			re, e := regexp.Compile("(?i)" + rule.Pattern)
+			matched = e == nil && re.MatchString(n.Text)
+		}
+		if matched {
+			r.LocalAction = strongerAction(r.LocalAction, rule.Action)
+			r.Matches = append(r.Matches, domain.Match{Rule: fmt.Sprintf("ad_rule_%d", i+1), Score: 100, Reason: "本地广告匹配：" + rule.Pattern})
+		}
+	}
+	if r.LocalAction != "" {
+		r.Score = 100
+	}
 	if r.Score > 100 {
 		r.Score = 100
 	}
@@ -151,6 +175,16 @@ func Evaluate(n domain.Normalized, s domain.Settings) domain.Risk {
 
 func Decide(r domain.Risk, ai *domain.AIResult, s domain.Settings, violations int, protected bool) domain.Decision {
 	d := domain.Decision{Action: "allow", Reason: "low_risk"}
+	if r.LocalAction != "" {
+		if protected {
+			return domain.Decision{Action: "shadow_log", Reason: "protected_user"}
+		}
+		d = domain.Decision{Action: r.LocalAction, Delete: true, Reason: "local_ad_rule"}
+		if d.Action == "mute" {
+			d.Duration = s.MuteSeconds
+		}
+		return d
+	}
 	violation := r.Spam || r.Score >= s.DirectThreshold
 	mute := false
 	if ai != nil && r.Score < s.DirectThreshold && !r.Spam {

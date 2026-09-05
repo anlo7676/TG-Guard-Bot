@@ -31,3 +31,14 @@ test('failed request retains form and reason, shows error and allows retry',asyn
 test('double submission while request pending does not issue duplicate approval',async()=>{
  const h=setup();vm.runInContext('api=()=>new Promise(resolve=>{release=resolve})',h.ctx);const first=h.submit();assert.equal(h.button.disabled,true);await h.submit();h.ctx.release();await first;assert.equal(h.button.disabled,false);
 });
+
+test('ad rule text editor preserves regex alternation and disabled state',()=>{
+ const h=setup();const text='包含|删除|广告词\n停用正则|封禁|优惠(代购|返利)';h.ctx.ruleText=text;
+ const rendered=vm.runInContext('formatAdRules(parseAdRules(ruleText))',h.ctx);assert.equal(rendered,text);
+ assert.throws(()=>vm.runInContext("parseAdRules('包含|未知|词')",h.ctx));
+});
+test('group editor exposes welcome template and direct local rule actions',async()=>{
+ const h=setup();vm.runInContext(`api=async()=>({welcome_enabled:true,welcome_text:'欢迎 {name}',rules:{advertising:{enabled:true,score:25,action:'mute'}},ad_rules:[{mode:'contains',pattern:'广告词',enabled:true,action:'delete'}]});`,h.ctx);
+ await vm.runInContext("editGroup('-1001')",h.ctx);const html=h.get('#group-editor').innerHTML;
+ for(const text of ['name="welcome_text"','欢迎 {name}','name="ad_rules"','包含|删除|广告词','name="rule-advertising-action"','value="mute" selected','封禁并清理发言'])assert.ok(html.includes(text),text);
+});

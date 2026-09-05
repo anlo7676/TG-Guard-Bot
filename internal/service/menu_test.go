@@ -54,6 +54,9 @@ func TestRegisteredGroupMenusDoNotOfferVerificationCommand(t *testing.T) {
 			scope := in["scope"].(map[string]any)["type"].(string)
 			scopes[scope] = true
 			for _, raw := range in["commands"].([]any) {
+				if scope == "all_group_chats" && raw.(map[string]any)["command"] == "id" {
+					t.Error("ID utility leaked into member menu")
+				}
 				if raw.(map[string]any)["command"] == "verify" {
 					t.Error("unusable verification command registered", scope)
 				}

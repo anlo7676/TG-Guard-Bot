@@ -97,9 +97,18 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 		}
 		return s.Say(ctx, m.Chat.ID, lang, "help")
 	case "id":
-		text := fmt.Sprintf("chat_id: %d\nuser_id: %d\nmessage_id: %d", m.Chat.ID, m.From.ID, m.ID)
+		if m.Chat.Type == "supergroup" {
+			allowed, e := s.Admin(ctx, m.Chat.ID, m.From.ID)
+			if e != nil {
+				return e
+			}
+			if !allowed {
+				return s.text(ctx, m.Chat.ID, "群内 ID 查询供管理员使用。如需查看自己的 ID，请私聊机器人发送 /id。")
+			}
+		}
+		text := fmt.Sprintf("群／会话 ID：%d\n你的用户 ID：%d\n消息 ID：%d", m.Chat.ID, m.From.ID, m.ID)
 		if m.Reply != nil && m.Reply.From != nil {
-			text += fmt.Sprintf("\nreply_user_id: %d\nreply_message_id: %d", m.Reply.From.ID, m.Reply.ID)
+			text += fmt.Sprintf("\n目标用户 ID：%d\n目标消息 ID：%d", m.Reply.From.ID, m.Reply.ID)
 		}
 		_, e := s.Bot.Send(ctx, m.Chat.ID, text, nil, 0)
 		return e
@@ -217,6 +226,9 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 		}
 	default:
 		return s.Say(ctx, m.Chat.ID, lang, "unknown_command")
+	}
+	if command == "ban" {
+		return s.text(ctx, m.Chat.ID, "封禁操作已完成，已请求 Telegram 同时清理该用户在本群的全部发言。")
 	}
 	return s.Say(ctx, m.Chat.ID, lang, "done")
 }

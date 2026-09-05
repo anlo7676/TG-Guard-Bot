@@ -131,7 +131,7 @@ func (s *Service) GroupMenu(ctx context.Context, m domain.Message, data string) 
 		rows = append(rows, []menuButton{button("⚙ 群设置", prefix+"settings"), button("📊 群统计", prefix+"stats")}, []menuButton{button("📏 审核规则", prefix+"rules"), button("💬 关键词回复", prefix+"keywords")}, []menuButton{button("白名单", prefix+"white"), button("黑名单", prefix+"black")}, []menuButton{button("可信用户", prefix+"trusted")})
 	case "settings":
 		text += "请选择设置分类。保存立即生效，只影响本群。"
-		for _, x := range []struct{ key, label string }{{"verify", "新人验证"}, {"review", "消息与 AI 审核"}, {"spam", "防刷屏"}, {"punish", "自动处罚"}, {"other", "关键词、日志与语言"}} {
+		for _, x := range []struct{ key, label string }{{"welcome", "入群欢迎语"}, {"verify", "新人验证"}, {"review", "消息与 AI 审核"}, {"spam", "防刷屏"}, {"punish", "自动处罚"}, {"other", "关键词、日志与语言"}} {
 			rows = append(rows, []menuButton{button(x.label, prefix+"category:"+x.key)})
 		}
 	case "category":
@@ -139,18 +139,20 @@ func (s *Service) GroupMenu(ctx context.Context, m domain.Message, data string) 
 			return nil
 		}
 		values := settingValues(v)
-		text += "点击项目修改。AI 功能需先由部署者配置模型接口。"
+		text += "点击项目修改，保存仅对本群生效。"
 		for _, f := range domain.SettingFields {
 			if f.Section == parts[3] {
-				rows = append(rows, []menuButton{button(f.Label+"："+displayValue(values[f.Key]), prefix+"field:"+f.Key)})
+				rows = append(rows, []menuButton{button(f.Label+"："+commandExcerpt(displayValue(values[f.Key]), 40), prefix+"field:"+f.Key)})
 			}
 		}
 	case "rules":
 		text += fmt.Sprintf("AI 触发风险分：%d；直接处理风险分：%d\n点击规则可切换启用状态、修改评分。", v.AIThreshold, v.DirectThreshold)
 		for _, r := range menuRules {
 			value := ruleValue(v, r.Key)
-			rows = append(rows, []menuButton{button(fmt.Sprintf("%s · %s · %d 分", r.Label, displayValue(value.Enabled), value.Score), prefix+"rule:"+r.Key)})
+			rows = append(rows, []menuButton{button(fmt.Sprintf("%s · %s · %d 分", r.Label, displayValue(value.Enabled), value.Score)+" · "+ruleActionLabel(value.Action), prefix+"rule:"+r.Key)})
 		}
+		text += fmt.Sprintf("\n自定义广告规则：%d 条。直接动作不依赖 AI 或累计次数；多条命中取封禁、禁言、删除中最强动作。", len(v.AdRules))
+		rows = append(rows, []menuButton{button("编辑广告匹配词库", prefix+"adEdit")})
 	case "keywords":
 		ks, e := s.Store.Keywords(ctx, chat)
 		if e != nil {
