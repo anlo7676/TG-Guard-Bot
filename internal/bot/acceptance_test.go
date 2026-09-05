@@ -440,6 +440,61 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 
 	})
 
+	t.Run("all read commands show readable summaries and section menus", func(t *testing.T) {
+		if e := db.ChangeSettings(ctx, chat.ID, 42, func(v *domain.Settings) error {
+			v.Rules["url"] = domain.RuleSetting{Enabled: false, Score: 7}
+			return nil
+		}); e != nil {
+			t.Fatal(e)
+		}
+		if e := db.SaveList(ctx, domain.ListEntry{ChatID: chat.ID, UserID: 888, Kind: "black", Reason: "展示测试"}, 42, false); e != nil {
+			t.Fatal(e)
+		}
+		for _, tc := range []struct{ command, section, label string }{{"rules", "rules", "审核规则"}, {"stats", "stats", "本群统计"}, {"keywords", "keywords", "关键词回复"}, {"whitelist", "white", "白名单"}, {"blacklist", "black", "黑名单"}} {
+			t.Run(tc.command, func(t *testing.T) {
+				handle(message("/"+tc.command+"@guardbot", 42))
+				out := lastSend()
+				text := fmt.Sprint(out["text"])
+				if json.Valid([]byte(text)) || !strings.Contains(text, tc.label) {
+					t.Fatal("raw or wrong command output", text)
+				}
+				if tc.command == "rules" && !strings.Contains(text, "外部 URL：已关闭 · 7 分") {
+					t.Fatal("rules ignored effective overrides", text)
+				}
+				raw, _ := json.Marshal(out)
+				arg := fmt.Sprintf("group_%d_%s", chat.ID, tc.section)
+				if !strings.Contains(string(raw), "start="+arg) {
+					t.Fatal("wrong section link", string(raw))
+				}
+				private := domain.Message{Chat: domain.Chat{ID: 42, Type: "private"}, From: &domain.User{ID: 42}}
+				if e := svc.Command(ctx, 900, private, "start", arg); e != nil {
+					t.Fatal(e)
+				}
+				if text := fmt.Sprint(lastSend()["text"]); json.Valid([]byte(text)) || !strings.Contains(text, chat.Title) {
+					t.Fatal("deep link did not open selected group", text)
+				}
+				if e := svc.Command(ctx, 901, private, tc.command, ""); e != nil {
+					t.Fatal(e)
+				}
+				if !strings.Contains(fmt.Sprint(lastSend()["text"]), "我的群组") {
+					t.Fatal("private command did not select group")
+				}
+				data := lastSend()["reply_markup"].(map[string]any)["inline_keyboard"].([]any)[0].([]any)[0].(map[string]any)["callback_data"].(string)
+				if e := svc.MenuCallback(ctx, domain.Callback{ID: "select-command", From: *private.From, Message: &private, Data: data}); e != nil {
+					t.Fatal(e)
+				}
+				if text := fmt.Sprint(lastSend()["text"]); !strings.Contains(text, chat.Title) || strings.Contains(text, "请选择本群管理功能") {
+					t.Fatal("private selection lost requested section", text)
+				}
+				if e := svc.MenuCallback(ctx, domain.Callback{ID: "refresh-section", From: *private.From, Message: &private, Data: "menu:groups:0:" + tc.section}); e != nil {
+					t.Fatal(e)
+				}
+				if !strings.Contains(fmt.Sprint(lastSend()["text"]), "我的群组") {
+					t.Fatal("section refresh broken")
+				}
+			})
+		}
+	})
 	t.Run("expired menu and revoked permission", func(t *testing.T) {
 		m := domain.Message{Chat: domain.Chat{ID: 42, Type: "private"}, From: &domain.User{ID: 42}}
 		if err := svc.GroupMenu(ctx, m, "gm:-1001:home"); err != nil {

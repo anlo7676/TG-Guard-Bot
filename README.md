@@ -200,3 +200,9 @@ scripts/               Windows UTF-8 运行和测试脚本
 **升级说明：已有群也会转为待审批，需要部署者逐一批准。** 进行中的验证进入取消恢复队列，解除其验证限制；恢复失败会重试，可在验证记录查看错误。撤销时停止待执行处罚，清理验证不再踢人。已经发往 Telegram 的在途操作不能撤回。
 
 API：已登录部署者可 PUT /api/v1/groups/{chat}/authorization，JSON 为 status（approved/rejected/revoked）及 reason。普通群管理员不获得网页后台权限；网页只读历史可继续查询，未授权群的配置写入返回 403。
+
+### Telegram 命令交互（v1.2.2）
+
+群聊中的 /rules、/stats、/keywords、/whitelist、/blacklist 返回中文摘要及对应功能按钮。/rules 合并默认规则和群自定义值后显示实际生效状态，不再输出 defaults、overrides 等内部字段。关键词和名单摘要限制条数，完整记录在私聊菜单分页管理。
+
+私聊输入上述命令或 /settings，先选择已授权且有权限的群组，随后直接进入对应功能。群聊生成的链接、群选择翻页及刷新均保留功能目标。旧的群设置链接继续有效。/settings JSON 参数仍作为高级快捷修改方式保留，日常设置可全部通过菜单完成。

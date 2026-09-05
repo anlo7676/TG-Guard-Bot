@@ -22,7 +22,14 @@ func (s *Service) groupMenuSend(ctx context.Context, user int64, text string, ro
 	_, err = s.Bot.Send(ctx, user, text, map[string]any{"inline_keyboard": rows}, 0)
 	return err
 }
-func (s *Service) MyGroups(ctx context.Context, m domain.Message, before int64) error {
+func (s *Service) MyGroups(ctx context.Context, m domain.Message, before int64, sections ...string) error {
+	section := "home"
+	if len(sections) > 0 {
+		section = sections[0]
+	}
+	if !validMenuSection(section) {
+		return nil
+	}
 	if m.From == nil || m.Chat.Type != "private" || m.Chat.ID != m.From.ID {
 		return nil
 	}
@@ -51,9 +58,9 @@ func (s *Service) MyGroups(ctx context.Context, m domain.Message, before int64) 
 		if len(title) > 40 {
 			title = title[:40]
 		}
-		rows = append(rows, []menuButton{button(string(title), fmt.Sprintf("gm:%d:home", g.ID))})
+		rows = append(rows, []menuButton{button(string(title), fmt.Sprintf("gm:%d:%s", g.ID, section))})
 	}
-	text := "我的群组\n\n选择要管理的群组。每次查看和修改都会重新检查你的群管理员权限。"
+	text := "我的群组 · " + menuSectionLabel(section) + "\n\n选择要管理的群组。每次查看和修改都会重新检查你的群管理员权限。"
 	if len(rows) == 0 {
 		text += "\n\n本页没有可管理的已授权群组。请先联系部署者在网页后台批准接入。可在目标超级群发送 /settings，直接打开该群设置。"
 	}
@@ -61,9 +68,9 @@ func (s *Service) MyGroups(ctx context.Context, m domain.Message, before int64) 
 		text += "\n部分群权限暂时无法确认，请稍后刷新。"
 	}
 	if len(groups) > 10 {
-		rows = append(rows, []menuButton{button("继续查找下一页", fmt.Sprintf("menu:groups:%d", groups[9].ID))})
+		rows = append(rows, []menuButton{button("继续查找下一页", fmt.Sprintf("menu:groups:%d:%s", groups[9].ID, section))})
 	}
-	rows = append(rows, []menuButton{button("刷新群列表", "menu:groups"), button("主菜单", "menu:home")})
+	rows = append(rows, []menuButton{button("刷新群列表", fmt.Sprintf("menu:groups:0:%s", section)), button("主菜单", "menu:home")})
 	return s.groupMenuSend(ctx, m.Chat.ID, text, rows)
 }
 func (s *Service) GroupMenuLink(ctx context.Context, m domain.Message) error {
@@ -197,27 +204,17 @@ func (s *Service) GroupMenu(ctx context.Context, m domain.Message, data string) 
 		}
 		rows = append(rows, []menuButton{button("＋ 添加"+labels[section], prefix+"listAdd:"+section)})
 	case "stats":
-		stats, e := s.Store.Rows(ctx, "SELECT (SELECT COUNT(*) FROM group_members WHERE chat_id=? AND left_at IS NULL) AS known_members,(SELECT COUNT(*) FROM moderation_logs WHERE chat_id=?) AS reviewed_messages,(SELECT COUNT(*) FROM punishments WHERE chat_id=? AND status='done') AS punishments", chat, chat, chat)
+		summary, e := s.statsSummary(ctx, chat)
 		if e != nil {
 			return e
 		}
-		if len(stats) > 0 {
-			r := stats[0]
-			text += fmt.Sprintf("已记录成员：%v\n累计审核消息：%v\n已完成处罚：%v", r["known_members"], r["reviewed_messages"], r["punishments"])
-		}
+		text += summary
+
 	default:
 		return nil
 	}
 	rows = append(rows, []menuButton{button("← 本群管理", prefix+"home"), button("切换群组", "menu:groups")})
 	return s.groupMenuSend(ctx, m.Chat.ID, text, rows)
-}
-func prettyMenu(v any) string {
-	b, _ := json.MarshalIndent(v, "", "  ")
-	r := []rune(string(b))
-	if len(r) > 2200 {
-		return string(r[:2200]) + "\n…"
-	}
-	return string(r)
 }
 func setMenuField(v *domain.Settings, key, value string) error {
 	switch key {

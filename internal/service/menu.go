@@ -9,7 +9,7 @@ import (
 )
 
 func (s *Service) RegisterMenus(ctx context.Context) error {
-	common := []map[string]string{{"command": "groups", "description": "选择我管理的群组"}, {"command": "settings", "description": "选择群组并修改群设置"}, {"command": "start", "description": "打开主菜单"}, {"command": "menu", "description": "群管理菜单"}, {"command": "id", "description": "查看我的 Telegram ID"}, {"command": "help", "description": "使用帮助"}, {"command": "version", "description": "查看运行版本"}}
+	common := []map[string]string{{"command": "groups", "description": "选择我管理的群组"}, {"command": "settings", "description": "选择群组并修改群设置"}, {"command": "rules", "description": "选择群组查看和调整审核规则"}, {"command": "stats", "description": "选择群组查看统计"}, {"command": "keywords", "description": "选择群组管理关键词回复"}, {"command": "whitelist", "description": "选择群组管理白名单"}, {"command": "blacklist", "description": "选择群组管理黑名单"}, {"command": "start", "description": "打开主菜单"}, {"command": "menu", "description": "群管理菜单"}, {"command": "id", "description": "查看我的 Telegram ID"}, {"command": "help", "description": "使用帮助"}, {"command": "version", "description": "查看运行版本"}}
 	if e := s.Bot.Call(ctx, "setMyCommands", map[string]any{"commands": common, "scope": map[string]string{"type": "all_private_chats"}}, nil); e != nil {
 		return e
 	}
@@ -97,11 +97,16 @@ func (s *Service) MenuCallback(ctx context.Context, c domain.Callback) error {
 		return s.text(ctx, m.Chat.ID, "旧版菜单已更新，请发送 /menu 重新打开。")
 	}
 	if strings.HasPrefix(c.Data, "menu:groups:") {
-		before, e := strconv.ParseInt(strings.TrimPrefix(c.Data, "menu:groups:"), 10, 64)
-		if e != nil || before >= 0 {
+		parts := strings.Split(strings.TrimPrefix(c.Data, "menu:groups:"), ":")
+		before, e := strconv.ParseInt(parts[0], 10, 64)
+		section := "home"
+		if len(parts) == 2 {
+			section = parts[1]
+		}
+		if e != nil || before > 0 || len(parts) > 2 || !validMenuSection(section) {
 			return nil
 		}
-		return s.MyGroups(ctx, m, before)
+		return s.MyGroups(ctx, m, before, section)
 	}
 	return s.PrivateSection(ctx, m, strings.TrimPrefix(c.Data, "menu:"))
 }

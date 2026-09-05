@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -49,17 +48,36 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 	lang := "zh_CN"
 	if m.Chat.Type == "private" {
 		if command == "start" && strings.HasPrefix(arg, "group_") {
-			return s.GroupMenu(ctx, m, "gm:"+strings.TrimPrefix(arg, "group_")+":home")
+			target := strings.SplitN(strings.TrimPrefix(arg, "group_"), "_", 2)
+			section := "home"
+			if len(target) == 2 {
+				section = target[1]
+			}
+			if !validMenuSection(section) {
+				return s.text(ctx, m.Chat.ID, "该功能链接无效，请发送 /menu 重新打开。")
+			}
+			return s.GroupMenu(ctx, m, "gm:"+target[0]+":"+section)
 		}
 		switch command {
 		case "start", "menu":
 			return s.Home(ctx, m)
+		case "verify":
+			return s.text(ctx, m.Chat.ID, "请点击群内的验证链接，在对应题目下回复答案；在群里发送 /verify 可查看本群验证状态。")
 		case "cancel":
 			return s.CancelGroupInput(ctx, m)
 		case "help":
 			return s.PrivateSection(ctx, m, "help")
-		case "groups", "settings":
+		case "groups":
 			return s.MyGroups(ctx, m, 0)
+		case "settings", "rules", "stats", "keywords", "whitelist", "blacklist":
+			section := command
+			if command == "whitelist" {
+				section = "white"
+			}
+			if command == "blacklist" {
+				section = "black"
+			}
+			return s.MyGroups(ctx, m, 0, section)
 		case "panel":
 			return s.PrivateSection(ctx, m, "panel")
 		case "admins":
@@ -104,7 +122,7 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 		if e != nil {
 			return e
 		}
-		_, e = s.Bot.Send(ctx, m.Chat.ID, fmt.Sprintf("验证状态：%s，截止时间：%s", v.Status, v.ExpiresAt.Format(time.RFC3339)), nil, m.ID)
+		_, e = s.Bot.Send(ctx, m.Chat.ID, fmt.Sprintf("验证状态：%s\n截止时间：%s（UTC）\n请从群内验证链接进入私聊完成验证。", verificationStatus(v.Status), v.ExpiresAt.UTC().Format("2006-01-02 15:04:05")), nil, m.ID)
 		return e
 	}
 	admin, e := s.Admin(ctx, m.Chat.ID, m.From.ID)
@@ -129,13 +147,13 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 		}
 
 	case "rules":
-		return s.sendJSON(ctx, m.Chat.ID, map[string]any{"defaults": map[string]int{"url": 20, "telegram_link": 40, "contact": 25, "mention": 20, "advertising": 25, "gambling": 35, "porn": 35, "crypto": 20, "many_links": 25, "emoji": 15}, "overrides": settings.Rules, "usage": "/settings {\"rules\":{\"url\":{\"enabled\":false,\"score\":20}}}"})
+		return s.commandMenuLink(ctx, m, "rules", rulesSummary(settings))
 	case "stats":
-		rows, e := s.Store.Rows(ctx, "SELECT (SELECT COUNT(*) FROM group_members WHERE chat_id=? AND left_at IS NULL) AS known_members,(SELECT COUNT(*) FROM moderation_logs WHERE chat_id=?) AS reviewed_messages,(SELECT COUNT(*) FROM punishments WHERE chat_id=? AND status='done') AS punishments", m.Chat.ID, m.Chat.ID, m.Chat.ID)
+		text, e := s.statsSummary(ctx, m.Chat.ID)
 		if e != nil {
 			return e
 		}
-		return s.sendJSON(ctx, m.Chat.ID, rows)
+		return s.commandMenuLink(ctx, m, "stats", text)
 	case "whitelist", "blacklist":
 		kind := "white"
 		if command == "blacklist" {
@@ -143,11 +161,7 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 		}
 		args := strings.Fields(arg)
 		if len(args) == 0 {
-			rows, e := s.Store.Rows(ctx, "SELECT user_id,username,kind,reason,expires_at FROM list_entries WHERE chat_id=? AND kind=? ORDER BY id DESC LIMIT 20", m.Chat.ID, kind)
-			if e != nil {
-				return e
-			}
-			return s.sendJSON(ctx, m.Chat.ID, rows)
+			return s.listSummary(ctx, m, kind)
 		}
 		if args[0] != "add" && args[0] != "remove" {
 			return s.text(ctx, m.Chat.ID, "用法：/"+command+" add|remove 用户ID或@username，也可回复用户消息。")
@@ -210,28 +224,13 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 	}
 	return s.Say(ctx, m.Chat.ID, lang, "done")
 }
-func (s *Service) sendJSON(ctx context.Context, chat int64, v any) error {
-	b, e := json.MarshalIndent(v, "", "  ")
-	if e != nil {
-		return e
-	}
-	r := []rune(string(b))
-	if len(r) > 3900 {
-		r = append(r[:3800], []rune("\n…结果较多，请通过管理 API 查看。")...)
-	}
-	return s.text(ctx, chat, string(r))
-}
 func (s *Service) text(ctx context.Context, chat int64, text string) error {
 	_, e := s.Bot.Send(ctx, chat, text, nil, 0)
 	return e
 }
 func (s *Service) keywordCommand(ctx context.Context, m domain.Message, arg string) error {
 	if arg == "" {
-		ks, e := s.Store.Keywords(ctx, m.Chat.ID)
-		if e != nil {
-			return e
-		}
-		return s.sendJSON(ctx, m.Chat.ID, ks)
+		return s.keywordSummary(ctx, m)
 	}
 	if strings.HasPrefix(arg, "del ") {
 		id, e := strconv.ParseInt(strings.TrimSpace(strings.TrimPrefix(arg, "del ")), 10, 64)
@@ -258,5 +257,5 @@ func (s *Service) keywordCommand(ctx context.Context, m domain.Message, arg stri
 			return s.text(ctx, m.Chat.ID, fmt.Sprintf("关键词已创建：%d", id))
 		}
 	}
-	return s.text(ctx, m.Chat.ID, "用法：/keywords add contains 官网 | 我们的官网是 https://example.com\n删除：/keywords del 规则ID\n高级回复类型、优先级和启停请使用管理 API。")
+	return s.text(ctx, m.Chat.ID, "用法：/keywords add contains 官网 | 我们的官网是 https://example.com\n删除：/keywords del 规则ID\n发送 /keywords 点击「管理关键词回复」，可在私聊中新增、编辑、启停和删除。")
 }
