@@ -3,12 +3,13 @@ package service
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"tgguard/internal/domain"
 )
 
 func (s *Service) RegisterMenus(ctx context.Context) error {
-	common := []map[string]string{{"command": "start", "description": "打开主菜单"}, {"command": "menu", "description": "功能菜单"}, {"command": "id", "description": "查看我的 Telegram ID"}, {"command": "panel", "description": "打开管理面板"}, {"command": "help", "description": "使用帮助"}}
+	common := []map[string]string{{"command": "groups", "description": "选择我管理的群组"}, {"command": "settings", "description": "选择群组并修改群设置"}, {"command": "start", "description": "打开主菜单"}, {"command": "menu", "description": "群管理菜单"}, {"command": "id", "description": "查看我的 Telegram ID"}, {"command": "help", "description": "使用帮助"}}
 	if e := s.Bot.Call(ctx, "setMyCommands", map[string]any{"commands": common, "scope": map[string]string{"type": "all_private_chats"}}, nil); e != nil {
 		return e
 	}
@@ -23,19 +24,22 @@ func (s *Service) RegisterMenus(ctx context.Context) error {
 	return s.Bot.Call(ctx, "setChatMenuButton", map[string]any{"menu_button": map[string]string{"type": "commands"}}, nil)
 }
 func (s *Service) Home(ctx context.Context, m domain.Message) error {
-	if m.From == nil {
+	if m.From == nil || m.Chat.Type != "private" || m.Chat.ID != m.From.ID {
 		return nil
 	}
-	role := "普通用户"
+	role := "按所在群管理员权限管理群组"
 	if s.IsSuperAdmin(m.From.ID) {
 		role = "机器人管理员"
 	}
 	text := fmt.Sprintf("TG Guard · 智能群管理\n\n你好，%s。\n当前身份：%s\n\n请选择下方功能。新人验证请从群内验证链接进入。", m.From.FirstName, role)
 	markup := map[string]any{"inline_keyboard": [][]map[string]string{
-		{{"text": "🖥 管理面板", "callback_data": "menu:panel"}, {"text": "👤 我的身份", "callback_data": "menu:profile"}},
-		{{"text": "🛡 管理员设置", "callback_data": "menu:admins"}, {"text": "🧠 AI 接口设置", "callback_data": "menu:ai"}},
+		{{"text": "📋 我的群组 / 群设置", "callback_data": "menu:groups"}},
+		{{"text": "👤 我的身份", "callback_data": "menu:profile"}},
 		{{"text": "➕ 添加到群组", "url": "https://t.me/" + s.Bot.Username + "?startgroup=true"}, {"text": "📖 使用帮助", "callback_data": "menu:help"}},
 	}}
+	if s.IsSuperAdmin(m.From.ID) {
+		markup["inline_keyboard"] = append(markup["inline_keyboard"].([][]map[string]string), []map[string]string{{"text": "部署者后台说明", "callback_data": "menu:panel"}})
+	}
 	_, e := s.Bot.Send(ctx, m.Chat.ID, text, markup, 0)
 	return e
 }
@@ -49,6 +53,8 @@ func (s *Service) PrivateSection(ctx context.Context, m domain.Message, section 
 	}
 	var text string
 	switch section {
+	case "groups":
+		return s.MyGroups(ctx, m, 0)
 	case "profile":
 		role := "普通用户"
 		if s.IsSuperAdmin(m.From.ID) {
@@ -62,7 +68,7 @@ func (s *Service) PrivateSection(ctx context.Context, m domain.Message, section 
 	case "ai":
 		text = "AI 接口设置\n\n在 Web 面板 → AI 接口填写：\n• API Base URL（含 /v1）\n• 模型名称\n• API Key\n\n保存并启用全局 AI 后，还需到「群管理」打开目标群的 AI 审核。Key 加密保存，不通过私聊显示。\n后台：" + panel
 	case "help":
-		text = "使用流程\n\n① 将机器人添加到超级群并设为管理员，授予删除消息、限制成员权限。\n② 在 Web 面板配置群验证、审核和关键词。\n③ 新成员通过群内链接进行私聊验证。\n④ 回复可疑消息发送 /check 进行 AI 复核。\n\n/menu 主菜单\n/id 我的 ID\n/panel 管理面板"
+		text = "使用流程\n\n① 将机器人添加到超级群并设为管理员，授予删除消息、限制成员权限。\n② 点击「我的群组」选择群组，设置本群验证、审核和处罚；也可在群里发送 /settings 直达本群菜单。\n③ 新成员通过群内链接进行私聊验证。\n④ 回复可疑消息发送 /check 进行 AI 复核。\n\n/groups 我的群组\n/menu 主菜单\n/id 我的 ID\n\n群管理员可管理自己的群，无需成为机器人全局管理员。"
 	default:
 		return s.Home(ctx, m)
 	}
@@ -73,9 +79,19 @@ func (s *Service) MenuCallback(ctx context.Context, c domain.Callback) error {
 	if c.Message == nil || c.Message.Chat.Type != "private" || c.Message.Chat.ID != c.From.ID {
 		return nil
 	}
-	// Menu callbacks only display information. They never grant roles or reveal credentials.
+	// Group callbacks always recheck live group permissions before accessing data.
 	_ = s.Bot.AnswerCallback(ctx, c.ID, "")
 	m := *c.Message
 	m.From = &c.From
+	if strings.HasPrefix(c.Data, "gm:") {
+		return s.GroupMenu(ctx, m, c.Data)
+	}
+	if strings.HasPrefix(c.Data, "menu:groups:") {
+		before, e := strconv.ParseInt(strings.TrimPrefix(c.Data, "menu:groups:"), 10, 64)
+		if e != nil || before >= 0 {
+			return nil
+		}
+		return s.MyGroups(ctx, m, before)
+	}
 	return s.PrivateSection(ctx, m, strings.TrimPrefix(c.Data, "menu:"))
 }

@@ -63,6 +63,43 @@ func TestMySQLIntegration(t *testing.T) {
 			t.Fatal(kind, e)
 		}
 	})
+	t.Run("private menu settings isolate and preserve concurrent edits", func(t *testing.T) {
+		if e := s.RegisterGroup(ctx, domain.Chat{ID: -991, Title: "Menu group", Type: "supergroup"}); e != nil {
+			t.Fatal(e)
+		}
+		var wg sync.WaitGroup
+		for _, change := range []func(*domain.Settings) error{
+			func(v *domain.Settings) error { v.AIEnabled = true; return nil },
+			func(v *domain.Settings) error { v.RateLimit = 19; return nil },
+		} {
+			wg.Add(1)
+			go func(f func(*domain.Settings) error) {
+				defer wg.Done()
+				if e := s.ChangeSettings(ctx, -991, 42, f); e != nil {
+					t.Error(e)
+				}
+			}(change)
+		}
+		wg.Wait()
+		v, e := s.Settings(ctx, -991)
+		if e != nil || !v.AIEnabled || v.RateLimit != 19 {
+			t.Fatal("lost change", v, e)
+		}
+		other, e := s.Settings(ctx, -992)
+		if e != nil || other.AIEnabled || other.RateLimit == 19 {
+			t.Fatal("cross group change", e)
+		}
+		var audits int
+		if e = s.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM admin_audits WHERE chat_id=-991 AND actor_id=42").Scan(&audits); e != nil || audits != 2 {
+			t.Fatal("missing actor audit", audits, e)
+		}
+		if e = s.DeactivateGroup(ctx, -991); e != nil {
+			t.Fatal(e)
+		}
+		if e = s.ChangeSettings(ctx, -991, 42, func(v *domain.Settings) error { v.AIEnabled = false; return nil }); !errors.Is(e, sql.ErrNoRows) {
+			t.Fatal("inactive group accepted", e)
+		}
+	})
 	t.Run("keywords CRUD", func(t *testing.T) {
 		k := domain.Keyword{ChatID: -100, Keyword: "官网", MatchType: "contains", ReplyType: "text", Content: "https://example.com", Enabled: true}
 		id, e := s.SaveKeyword(ctx, k, 42)

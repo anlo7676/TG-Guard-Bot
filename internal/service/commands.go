@@ -34,12 +34,17 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 	}
 	lang := "zh_CN"
 	if m.Chat.Type == "private" {
+		if command == "start" && strings.HasPrefix(arg, "group_") {
+			return s.GroupMenu(ctx, m, "gm:"+strings.TrimPrefix(arg, "group_")+":home")
+		}
 		switch command {
 		case "start", "menu":
 			return s.Home(ctx, m)
 		case "help":
 			return s.PrivateSection(ctx, m, "help")
-		case "panel", "settings":
+		case "groups", "settings":
+			return s.MyGroups(ctx, m, 0)
+		case "panel":
 			return s.PrivateSection(ctx, m, "panel")
 		case "admins":
 			return s.PrivateSection(ctx, m, "admins")
@@ -92,9 +97,11 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 		return s.Say(ctx, m.Chat.ID, lang, "denied")
 	}
 	switch command {
+	case "menu":
+		return s.GroupMenuLink(ctx, m)
 	case "settings":
 		if arg == "" {
-			return s.sendJSON(ctx, m.Chat.ID, settings)
+			return s.GroupMenuLink(ctx, m)
 		}
 		d := json.NewDecoder(strings.NewReader(arg))
 		d.DisallowUnknownFields()

@@ -18,9 +18,14 @@ func TestPrivateHomeHasInteractiveMenu(t *testing.T) {
 			t.Fatal(e)
 		}
 		b, _ := json.Marshal(in)
-		for _, needle := range []string{"inline_keyboard", "menu:profile", "menu:admins", "menu:ai", "menu:panel"} {
+		for _, needle := range []string{"inline_keyboard", "menu:profile", "menu:groups"} {
 			if !strings.Contains(string(b), needle) {
 				t.Error("missing", needle)
+			}
+		}
+		for _, needle := range []string{"menu:admins", "menu:ai", "menu:panel"} {
+			if strings.Contains(string(b), needle) {
+				t.Error("ordinary group administrator saw deployment menu", needle)
 			}
 		}
 		w.Write([]byte(`{"ok":true,"result":{"message_id":1}}`))

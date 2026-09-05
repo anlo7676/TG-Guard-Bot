@@ -1,0 +1,73 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"tgguard/internal/domain"
+)
+
+type MenuGroup struct {
+	ID    int64
+	Title string
+}
+
+func (s *Store) MenuGroups(ctx context.Context, before int64) ([]MenuGroup, error) {
+	rows, err := s.DB.QueryContext(ctx, "SELECT chat_id,title FROM bot_groups WHERE active=TRUE AND chat_id< ? ORDER BY chat_id DESC LIMIT 11", before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []MenuGroup{}
+	for rows.Next() {
+		var g MenuGroup
+		if err = rows.Scan(&g.ID, &g.Title); err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+func (s *Store) MenuGroup(ctx context.Context, chat int64) (MenuGroup, error) {
+	var g MenuGroup
+	err := s.DB.QueryRowContext(ctx, "SELECT chat_id,title FROM bot_groups WHERE chat_id=? AND active=TRUE", chat).Scan(&g.ID, &g.Title)
+	return g, err
+}
+
+// ChangeSettings reads the latest settings under lock, preserving unrelated edits.
+func (s *Store) ChangeSettings(ctx context.Context, chat, actor int64, change func(*domain.Settings) error) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var id int64
+	if err = tx.QueryRowContext(ctx, "SELECT chat_id FROM bot_groups WHERE chat_id=? AND active=TRUE FOR UPDATE", chat).Scan(&id); err != nil {
+		return err
+	}
+	var raw []byte
+	err = tx.QueryRowContext(ctx, "SELECT settings FROM group_settings WHERE chat_id=? FOR UPDATE", chat).Scan(&raw)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	v := domain.DefaultSettings()
+	if len(raw) > 0 {
+		if err = json.Unmarshal(raw, &v); err != nil {
+			return err
+		}
+	}
+	before := JSON(v)
+	if err = change(&v); err != nil {
+		return err
+	}
+	if err = v.Validate(); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "INSERT INTO group_settings(chat_id,settings) VALUES(?,?) ON DUPLICATE KEY UPDATE settings=VALUES(settings)", chat, JSON(v)); err != nil {
+		return err
+	}
+	if err = audit(ctx, tx, chat, actor, "settings.update", json.RawMessage(before), v); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
