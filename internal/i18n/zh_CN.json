@@ -1,0 +1,23 @@
+{
+  "help": "TG Guard 智能群管机器人\n入群后点击验证链接，在私聊完成验证。\n回复消息使用 /check 或 @机器人 可查询风险。\n管理员命令：/settings /stats /rules /keywords /whitelist /blacklist /warn /mute /unmute /ban /unban\n/id 查看 ID；/verify 查看验证状态。",
+  "welcome": "欢迎 %s！请在 %d 秒内点击按钮，到私聊完成验证。",
+  "verify_button": "点击进行验证",
+  "human_question": "请选择“我是人类”",
+  "human": "我是人类",
+  "robot": "机器人",
+  "skip": "跳过",
+  "answer_hint": "%s\n请回复本条题目输入答案（最多 3 次）。",
+  "verified": "验证成功，已恢复群默认发言权限。",
+  "invalid_verify": "验证无效、已过期或答案错误。请检查是否使用本人账号；最多允许 3 次尝试。",
+  "pending_verify": "验证已受理，正在恢复群权限。",
+  "denied": "没有权限执行此操作。",
+  "reply_required": "请回复需要审核或操作的用户消息。",
+  "ai_unavailable": "AI 暂时不可用，本次未执行任何处罚。",
+  "ai_result": "AI 审核结果\n疑似广告：%t\n置信度：%.0f%%\n类型：%s\n原因：%s\n建议：%s\n只有管理员可使用下方操作。",
+  "warning": "用户 %d：请遵守群规则，停止发送广告或刷屏。",
+  "done": "操作已完成并记录。",
+  "expired_button": "按钮已过期或不属于此群。",
+  "review_limited": "审核请求过于频繁，请稍后再试。",
+  "bot_permissions": "机器人需要超级群管理员权限，并开启删除消息、限制成员权限。请同时在 BotFather 中关闭 Privacy Mode。",
+  "unknown_command": "命令格式不正确，请使用 /help 查看帮助。"
+}

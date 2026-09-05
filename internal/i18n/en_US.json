@@ -1,0 +1,23 @@
+{
+  "help": "TG Guard\nComplete new-member verification in private chat.\nReply with /check or @bot to review a message.\nAdmin: /settings /stats /rules /keywords /whitelist /blacklist /warn /mute /unmute /ban /unban\n/id shows IDs; /verify shows verification status.",
+  "welcome": "Welcome %s! Open the button and verify in private chat within %d seconds.",
+  "verify_button": "Verify now",
+  "human_question": "Select 'I am human'",
+  "human": "I am human",
+  "robot": "Robot",
+  "skip": "Skip",
+  "answer_hint": "%s\nReply to this challenge with your answer (3 attempts maximum).",
+  "verified": "Verified. Default group permissions restored.",
+  "invalid_verify": "Invalid, expired or incorrect verification. Use the account that joined; maximum 3 attempts.",
+  "pending_verify": "Verification accepted. Restoring group permissions.",
+  "denied": "You do not have permission.",
+  "reply_required": "Reply to the user's message first.",
+  "ai_unavailable": "AI is temporarily unavailable. No punishment was applied.",
+  "ai_result": "AI review\nAdvertising: %t\nConfidence: %.0f%%\nCategory: %s\nReason: %s\nSuggestion: %s\nOnly administrators can use the actions below.",
+  "warning": "User %d: please follow group rules and stop advertising or flooding.",
+  "done": "Completed and audited.",
+  "expired_button": "This button has expired or belongs to another chat.",
+  "review_limited": "Too many review requests. Please try later.",
+  "bot_permissions": "The bot needs supergroup administrator permissions to delete messages and restrict members. Disable Privacy Mode in BotFather.",
+  "unknown_command": "Invalid command. Use /help."
+}
