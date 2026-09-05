@@ -6,6 +6,8 @@
 
 - 提交前人工代码审查：权限边界、处罚统一入口、验证状态竞争、失败恢复、群配置隔离、持久队列去重、配置校验、日志及凭据处理。
 - `go vet ./...`。
+- 本地构建并后台运行通过：Windows 可执行文件以 Polling 模式启动，完成 Telegram 身份识别和接入初始化；业务库 `tgguard` 已迁移，HTTP 绑定 `127.0.0.1:8080`。`/health/ready` 返回 `ready`，管理 API 使用凭据返回 200、未鉴权返回 401。运行配置保存在 Git 忽略的 `.env`，日志和 PID 位于 `tmp/`。
+- 真实 Redis 8.6.2 连接及 `go test -count=1 -run '^TestRealRedis$' -v ./internal/state` 通过，使用本机 `127.0.0.1:6379`。
 - 本机 MySQL 8.4.6 真实集成测试通过：新建独立 `tgguard_test` 数据库，验证迁移幂等、群设置和名单隔离、关键词 CRUD、队列顺序／去重／重试、并发验证唯一胜者、三次错误过期及审核日志幂等；随后携带测试数据库配置运行全量 `go test -count=1 ./...` 和 `go vet ./...` 均通过。连接凭据仅注入测试进程环境，没有写入项目配置或版本库。
 - `go test -count=1 ./...`（由 `scripts/test.ps1` 执行）：规则、决策、关键词、AI HTTP 模拟、Telegram HTTP 模拟、API 鉴权、SQL 事务模拟、Redis Lua 并发／过期／有主锁等本地测试通过。
 - 验证回归：他人账号、过期和已消费 Token 均拒绝；正确回答先进入 completing；错误答案持久化尝试次数；外部已有封禁不会被验证超时任务解除，本机器人中断的 kick 可以完成 unban。
@@ -30,10 +32,9 @@
 
 ## 尚未执行
 
-- 真实 Redis 8.6.2 联调：本机没有配置 `TEST_REDIS_ADDR`，真实服务测试明确跳过；本地 Lua 测试使用 miniredis。
 - Docker Compose 配置解析、镜像构建和整套启动：本机没有 Docker。
 - Race 检测：本机 CGO 未启用且没有兼容 C 编译器；CI 已配置 Linux `go test -race`。
-- Telegram 实际群、AI 供应商接口、HTTPS Webhook：没有提供真实 Bot Token／AI 凭据和部署入口。
+- Telegram 实际群内验证／审核／处罚的完整链路、AI 供应商接口和 HTTPS Webhook 尚未验收；当前已完成本地 Polling 启动，AI 凭据及 HTTPS 部署入口未配置。
 - 多群负载／吞吐测试和生产数据迁移测试。
 - GitHub Actions 工作流没有远程执行；本次按用户要求仅本地提交。
 
