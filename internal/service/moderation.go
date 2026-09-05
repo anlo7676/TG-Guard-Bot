@@ -19,6 +19,9 @@ func (s *Service) Moderate(ctx context.Context, update int64, m domain.Message) 
 	if m.From == nil || m.From.IsBot || m.SenderChat != nil || m.Chat.Type != "supergroup" {
 		return nil
 	}
+	if ok, e := s.Store.GroupAuthorized(ctx, m.Chat.ID); e != nil || !ok {
+		return e
+	}
 	key := eventKey(update, "auto")
 	prior, e := s.Store.GetLog(ctx, key)
 	if e == nil {
@@ -104,6 +107,9 @@ func (s *Service) applyModeration(ctx context.Context, m domain.Message, l store
 func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err error) {
 	if l.Decision.Action == "allow" || l.Decision.Action == "shadow_log" {
 		return nil
+	}
+	if ok, e := s.Store.GroupAuthorized(ctx, l.ChatID); e != nil || !ok {
+		return e
 	}
 	unlock, e := s.State.Lock(ctx, verifyLock(l.ChatID, l.UserID), 60*time.Second)
 	if e != nil {
@@ -192,6 +198,9 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 }
 
 func (s *Service) Keywords(ctx context.Context, m domain.Message, event string) error {
+	if ok, e := s.Store.GroupAuthorized(ctx, m.Chat.ID); e != nil || !ok {
+		return e
+	}
 	settings, e := s.Store.Settings(ctx, m.Chat.ID)
 	if e != nil || !settings.KeywordEnabled {
 		return e
@@ -254,6 +263,9 @@ func (s *Service) Keywords(ctx context.Context, m domain.Message, event string) 
 }
 
 func (s *Service) Review(ctx context.Context, update int64, m domain.Message) error {
+	if ok, e := s.Store.GroupAuthorized(ctx, m.Chat.ID); e != nil || !ok {
+		return e
+	}
 	if m.From == nil || m.Chat.Type != "supergroup" {
 		return nil
 	}

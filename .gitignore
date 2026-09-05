@@ -8,3 +8,5 @@ coverage.html
 *.log
 .idea/
 .vscode/
+
+.codex-remote-attachments/

@@ -33,6 +33,16 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 	if m.From == nil {
 		return nil
 	}
+	if m.Chat.Type == "private" && (command == "approve" || command == "reject" || command == "revoke") {
+		return s.authorizationCommand(ctx, m, command, arg)
+	}
+	if m.Chat.Type == "supergroup" {
+		if ok, e := s.Store.GroupAuthorized(ctx, m.Chat.ID); e != nil {
+			return e
+		} else if !ok {
+			return s.AuthorizationNotice(ctx, m.Chat.ID)
+		}
+	}
 	if command == "start" && strings.HasPrefix(arg, "verify_") {
 		return s.StartVerification(ctx, m, strings.TrimPrefix(arg, "verify_"))
 	}

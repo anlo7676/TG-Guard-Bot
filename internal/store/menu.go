@@ -13,7 +13,7 @@ type MenuGroup struct {
 }
 
 func (s *Store) MenuGroups(ctx context.Context, before int64) ([]MenuGroup, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT chat_id,title FROM bot_groups WHERE active=TRUE AND chat_id< ? ORDER BY chat_id DESC LIMIT 11", before)
+	rows, err := s.DB.QueryContext(ctx, "SELECT chat_id,title FROM bot_groups WHERE active=TRUE AND authorization='approved' AND chat_id< ? ORDER BY chat_id DESC LIMIT 11", before)
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +30,7 @@ func (s *Store) MenuGroups(ctx context.Context, before int64) ([]MenuGroup, erro
 }
 func (s *Store) MenuGroup(ctx context.Context, chat int64) (MenuGroup, error) {
 	var g MenuGroup
-	err := s.DB.QueryRowContext(ctx, "SELECT chat_id,title FROM bot_groups WHERE chat_id=? AND active=TRUE", chat).Scan(&g.ID, &g.Title)
+	err := s.DB.QueryRowContext(ctx, "SELECT chat_id,title FROM bot_groups WHERE chat_id=? AND active=TRUE AND authorization='approved'", chat).Scan(&g.ID, &g.Title)
 	return g, err
 }
 
@@ -42,7 +42,7 @@ func (s *Store) ChangeSettings(ctx context.Context, chat, actor int64, change fu
 	}
 	defer tx.Rollback()
 	var id int64
-	if err = tx.QueryRowContext(ctx, "SELECT chat_id FROM bot_groups WHERE chat_id=? AND active=TRUE FOR UPDATE", chat).Scan(&id); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT chat_id FROM bot_groups WHERE chat_id=? AND active=TRUE AND authorization='approved' FOR UPDATE", chat).Scan(&id); err != nil {
 		return err
 	}
 	var raw []byte

@@ -67,6 +67,9 @@ func TestMySQLIntegration(t *testing.T) {
 		if e := s.RegisterGroup(ctx, domain.Chat{ID: -991, Title: "Menu group", Type: "supergroup"}); e != nil {
 			t.Fatal(e)
 		}
+		if e := s.AuthorizeGroup(ctx, -991, 1, "approved", "test fixture"); e != nil {
+			t.Fatal(e)
+		}
 		var wg sync.WaitGroup
 		for _, change := range []func(*domain.Settings) error{
 			func(v *domain.Settings) error { v.AIEnabled = true; return nil },

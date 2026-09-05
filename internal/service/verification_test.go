@@ -43,6 +43,7 @@ func TestExpiredVerificationOnlyUnbansOwnedKick(t *testing.T) {
 			}))
 			defer srv.Close()
 			mock.ExpectQuery("SELECT settings FROM group_settings").WithArgs(int64(-100)).WillReturnRows(sqlmock.NewRows([]string{"settings"}))
+			mock.ExpectQuery("SELECT EXISTS").WillReturnRows(sqlmock.NewRows([]string{"ok"}).AddRow(true))
 			mock.ExpectQuery("SELECT kind FROM list_entries").WillReturnRows(sqlmock.NewRows([]string{"kind"}))
 			mock.ExpectBegin()
 			mock.ExpectExec("UPDATE verification_sessions SET status=").WithArgs("expired", "expired", "token", "expiring").WillReturnResult(sqlmock.NewResult(0, 1))

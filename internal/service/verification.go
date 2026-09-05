@@ -26,6 +26,9 @@ func (s *Service) Join(ctx context.Context, chat domain.Chat, u domain.User) err
 	if e := s.Group(ctx, chat); e != nil {
 		return e
 	}
+	if ok, e := s.Store.GroupAuthorized(ctx, chat.ID); e != nil || !ok {
+		return e
+	}
 	if e := s.Store.Join(ctx, chat.ID, u, "member"); e != nil {
 		return e
 	}
@@ -126,6 +129,11 @@ func (s *Service) StartVerification(ctx context.Context, m domain.Message, token
 	if v.UserID != m.From.ID || v.Status != "pending" || time.Now().After(v.ExpiresAt) {
 		return s.Say(ctx, m.Chat.ID, "zh_CN", "invalid_verify")
 	}
+	if ok, e := s.Store.GroupAuthorized(ctx, v.ChatID); e != nil {
+		return e
+	} else if !ok {
+		return s.text(ctx, m.Chat.ID, "该群授权已暂停，验证已停止。")
+	}
 	member, e := s.Bot.Member(ctx, v.ChatID, v.UserID)
 	if e != nil {
 		return e
@@ -194,8 +202,24 @@ func (s *Service) finishVerification(ctx context.Context, v store.Verification) 
 	if e != nil {
 		return e
 	}
+	authorized, e := s.Store.GroupAuthorized(ctx, v.ChatID)
+	if e != nil {
+		return e
+	}
 	status := "expired"
-	if v.Status == "completing" {
+	if !authorized || v.Status == "releasing" {
+		if m.Status == "restricted" {
+			if e = s.Bot.Restore(ctx, v.ChatID, v.UserID); e != nil {
+				return e
+			}
+		}
+		if v.KickStarted && v.FailAction == "kick" {
+			if e = s.Bot.Unban(ctx, v.ChatID, v.UserID); e != nil {
+				return e
+			}
+		}
+		status = "cancelled"
+	} else if v.Status == "completing" {
 		if !m.Present() {
 			status = "left"
 		} else {
@@ -282,7 +306,7 @@ func (s *Service) SweepVerification(ctx context.Context) error {
 			current, readErr := s.Store.Verification(c, v.Token)
 			if readErr != nil {
 				e = readErr
-			} else if current.Status == "completing" || current.Status == "expiring" {
+			} else if current.Status == "completing" || current.Status == "expiring" || current.Status == "releasing" {
 				e = s.finishVerification(c, current)
 			}
 			unlock()

@@ -76,6 +76,17 @@ func (h *Handler) Handle(ctx context.Context, u domain.Update) error {
 		}
 		return nil
 	}
+	if e := s.Group(ctx, m.Chat); e != nil {
+		return e
+	}
+	if ok, e := s.Store.GroupAuthorized(ctx, m.Chat.ID); e != nil {
+		return e
+	} else if !ok {
+		if _, _, command := service.ParseCommand(m.Text, s.Bot.Username); command {
+			return s.AuthorizationNotice(ctx, m.Chat.ID)
+		}
+		return nil
+	}
 	// A command or bot mention must not provide an escape hatch for advertising.
 	if e := s.Moderate(ctx, u.ID, *m); e != nil {
 		return e

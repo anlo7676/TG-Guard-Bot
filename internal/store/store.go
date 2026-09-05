@@ -101,8 +101,7 @@ func (s *Store) RegisterGroup(ctx context.Context, c domain.Chat) error {
 	return e
 }
 func (s *Store) DeactivateGroup(ctx context.Context, chat int64) error {
-	_, e := s.DB.ExecContext(ctx, "UPDATE bot_groups SET active=FALSE WHERE chat_id=?", chat)
-	return e
+	return s.changeAuthorization(ctx, chat, 0, "revoked", "机器人已离群，需要重新审批", true)
 }
 func (s *Store) VerifiedCurrentJoin(ctx context.Context, chat, user int64) (bool, error) {
 	var verified bool

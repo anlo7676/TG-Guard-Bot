@@ -106,6 +106,11 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	for _, g := range []domain.Chat{chat, other} {
+		if err = db.AuthorizeGroup(ctx, g.ID, 1, "approved", "test fixture"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	update := int64(100)
 	handle := func(m domain.Message) {
 		t.Helper()
@@ -140,6 +145,106 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		}
 		return n
 	}
+
+	t.Run("group authorization gates and safe verification cancellation", func(t *testing.T) {
+		g := domain.Chat{ID: -1003, Type: "supergroup", Title: "Pending group"}
+		if e := svc.Group(ctx, g); e != nil {
+			t.Fatal(e)
+		}
+		if ok, e := db.GroupAuthorized(ctx, g.ID); e != nil || ok {
+			t.Fatal("new group must require approval", e)
+		}
+		before := count("restrictChatMember") + count("banChatMember") + count("deleteMessage")
+		if e := svc.Join(ctx, g, domain.User{ID: 77}); e != nil {
+			t.Fatal(e)
+		}
+		handle(domain.Message{ID: 800, Chat: g, From: &domain.User{ID: 42}, Text: "/settings"})
+		if !strings.Contains(fmt.Sprint(lastSend()["text"]), "尚未获准") {
+			t.Fatal("missing approval guidance")
+		}
+		if e := svc.Command(ctx, 801, domain.Message{Chat: domain.Chat{ID: 42, Type: "private"}, From: &domain.User{ID: 42}}, "approve", "-1003"); e != nil {
+			t.Fatal(e)
+		}
+		if ok, _ := db.GroupAuthorized(ctx, g.ID); ok {
+			t.Fatal("group admin self-approved")
+		}
+		if after := count("restrictChatMember") + count("banChatMember") + count("deleteMessage"); before != after {
+			t.Fatal("unapproved group caused Telegram actions")
+		}
+		svc.SuperAdmins = map[int64]bool{1: true}
+		if e := svc.Command(ctx, 802, domain.Message{Chat: domain.Chat{ID: 1, Type: "private"}, From: &domain.User{ID: 1}}, "approve", "-1003 测试批准"); e != nil {
+			t.Fatal(e)
+		}
+		if ok, e := db.GroupAuthorized(ctx, g.ID); e != nil || !ok {
+			t.Fatal("approval not effective", e)
+		}
+		if e := svc.Join(ctx, g, domain.User{ID: 77}); e != nil {
+			t.Fatal(e)
+		}
+		v, e := db.ActiveVerification(ctx, g.ID, 77)
+		if e != nil {
+			t.Fatal(e)
+		}
+		mu.Lock()
+		roles[77] = "restricted"
+		mu.Unlock()
+		if e = db.AuthorizeGroup(ctx, g.ID, 1, "revoked", "测试撤销"); e != nil {
+			t.Fatal(e)
+		}
+		if e = svc.Group(ctx, g); e != nil {
+			t.Fatal(e)
+		}
+		if ok, _ := db.GroupAuthorized(ctx, g.ID); ok {
+			t.Fatal("registration reset revocation")
+		}
+		if e = db.ChangeSettings(ctx, g.ID, 42, func(v *domain.Settings) error { v.AutoBan = true; return nil }); e == nil {
+			t.Fatal("revoked settings accepted")
+		}
+		if allowed, e := svc.Admin(ctx, g.ID, 1); e != nil || allowed {
+			t.Fatal("superadmin bypassed group authorization")
+		}
+		if e := svc.GroupMenu(ctx, domain.Message{Chat: domain.Chat{ID: 42, Type: "private"}, From: &domain.User{ID: 42}}, "gm:-1003:set:auto_ban:true"); e != nil {
+			t.Fatal(e)
+		}
+		settings, e := db.Settings(ctx, g.ID)
+		if e != nil || settings.AutoBan {
+			t.Fatal("old menu bypassed authorization", e)
+		}
+		if e := svc.Punish(ctx, store.Log{EventKey: "revoked-ban", ChatID: g.ID, UserID: 77, Decision: domain.Decision{Action: "ban"}}, 1); e != nil {
+			t.Fatal(e)
+		}
+		bans := count("banChatMember")
+		restores := count("restrictChatMember")
+		if e = svc.SweepVerification(ctx); e != nil {
+			t.Fatal(e)
+		}
+		v, e = db.Verification(ctx, v.Token)
+		if e != nil || v.Status != "cancelled" {
+			t.Fatal("verification not cancelled", v.Status, e)
+		}
+		if count("banChatMember") != bans || count("restrictChatMember") != restores+1 {
+			t.Fatal("revocation must restore instead of ban")
+		}
+		mu.Lock()
+		roles[77] = "member"
+		mu.Unlock()
+		if e = db.AuthorizeGroup(ctx, g.ID, 1, "approved", ""); e != nil {
+			t.Fatal(e)
+		}
+		if e = db.DeactivateGroup(ctx, g.ID); e != nil {
+			t.Fatal(e)
+		}
+		if e = svc.Group(ctx, g); e != nil {
+			t.Fatal(e)
+		}
+		if ok, _ := db.GroupAuthorized(ctx, g.ID); ok {
+			t.Fatal("reinvite bypassed approval")
+		}
+		var audits int
+		if e = db.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM admin_audits WHERE chat_id=? AND action='group.authorization'", g.ID).Scan(&audits); e != nil || audits != 4 {
+			t.Fatal("approval audits missing", audits, e)
+		}
+	})
 	t.Run("settings command replies buttons not JSON", func(t *testing.T) {
 		handle(message("/settings@guardbot", 42))
 		out := lastSend()
@@ -295,6 +400,16 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			return w
 		}
 		if w := request("PUT", "/api/v1/groups/-1001/settings", `{"rate_limit":24}`); w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+
+		if w := request("PUT", "/api/v1/groups/-1003/settings", `{"rate_limit":24}`); w.Code != 403 {
+			t.Fatal("unapproved API mutation", w.Code)
+		}
+		if w := request("PUT", "/api/v1/groups/-1003/authorization", `{"status":"approved","reason":"网页审批"}`); w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		if w := request("PUT", "/api/v1/groups/-1003/authorization", `{"status":"rejected"}`); w.Code != 200 {
 			t.Fatal(w.Code, w.Body.String())
 		}
 		v, _ := db.Settings(ctx, chat.ID)

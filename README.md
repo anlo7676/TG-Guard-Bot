@@ -184,3 +184,19 @@ scripts/               Windows UTF-8 运行和测试脚本
 - [Telegram Bot API](https://core.telegram.org/bots/api)：群权限、Webhook、消息和回调协议。
 - [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)：JSON mode 仍需程序校验；本项目严格检查必填字段、枚举、范围及截断／拒绝响应。
 - [Redis 8.6.2](https://github.com/redis/redis/releases/tag/8.6.2)：目标 Redis 版本。
+
+## 群接入审批（v1.2）
+
+机器人被添加到群后，自动登记为待审批。群主和 Telegram 群管理员不能自行授权。部署者登录网页后台，在「群组列表」点击「批准」「拒绝」或「撤销授权」，可填写原因；结果记录在该群审计日志。未配置机器人超级管理员时，部署者仍可使用后台登录凭据审批。
+
+机器人超级管理员也可私聊使用：
+
+- /approve -100群ID [原因]
+- /reject -100群ID [原因]
+- /revoke -100群ID [原因]
+
+只有已批准且机器人仍在群内的群，才能使用审核、关键词、验证、处罚和群设置。超级管理员也不能跳过群授权。机器人离群会撤销授权，重新邀请后需要再次审批。拒绝或撤销不会删除原群配置，部署者可重新批准。
+
+**升级说明：已有群也会转为待审批，需要部署者逐一批准。** 进行中的验证进入取消恢复队列，解除其验证限制；恢复失败会重试，可在验证记录查看错误。撤销时停止待执行处罚，清理验证不再踢人。已经发往 Telegram 的在途操作不能撤回。
+
+API：已登录部署者可 PUT /api/v1/groups/{chat}/authorization，JSON 为 status（approved/rejected/revoked）及 reason。普通群管理员不获得网页后台权限；网页只读历史可继续查询，未授权群的配置写入返回 403。

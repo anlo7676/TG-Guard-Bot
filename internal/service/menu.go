@@ -27,7 +27,7 @@ func (s *Service) Home(ctx context.Context, m domain.Message) error {
 	if m.From == nil || m.Chat.Type != "private" || m.Chat.ID != m.From.ID {
 		return nil
 	}
-	role := "按所在群管理员权限管理群组"
+	role := "按所在群管理员权限管理已授权群组"
 	if s.IsSuperAdmin(m.From.ID) {
 		role = "机器人管理员"
 	}
@@ -64,11 +64,11 @@ func (s *Service) PrivateSection(ctx context.Context, m domain.Message, section 
 	case "panel":
 		text = "管理面板\n\n" + panel + "\n\n后台需要登录。部署电脑可运行 scripts/open-panel.ps1 一键登录。127.0.0.1 仅指当前设备；手机访问需由部署者配置可访问的后台地址。"
 	case "admins":
-		text = fmt.Sprintf("机器人管理员设置\n\n你的 Telegram ID：%d\n\n1. 部署者登录 Web 管理面板。\n2. 打开「机器人管理员」。\n3. 添加这个数字 ID 并保存，立即生效。\n\n群管理员由 Telegram 群内任命，只管理所在群；机器人管理员可管理所有接入群。\n后台：%s", m.From.ID, panel)
+		text = fmt.Sprintf("机器人管理员设置\n\n你的 Telegram ID：%d\n\n1. 部署者登录 Web 管理面板。\n2. 打开「机器人管理员」。\n3. 添加这个数字 ID 并保存，立即生效。\n\n群管理员由 Telegram 群内任命，只管理所在群；机器人管理员负责审批，并管理已授权群。\n后台：%s", m.From.ID, panel)
 	case "ai":
 		text = "AI 接口设置\n\n在 Web 面板 → AI 接口填写：\n• API Base URL（含 /v1）\n• 模型名称\n• API Key\n\n保存并启用全局 AI 后，还需到「群管理」打开目标群的 AI 审核。Key 加密保存，不通过私聊显示。\n后台：" + panel
 	case "help":
-		text = "使用流程\n\n① 将机器人添加到超级群并设为管理员，授予删除消息、限制成员权限。\n② 点击「我的群组」选择群组，设置本群验证、审核和处罚；也可在群里发送 /settings 直达本群菜单。\n③ 新成员通过群内链接进行私聊验证。\n④ 回复可疑消息发送 /check 进行 AI 复核。\n\n/groups 我的群组\n/menu 主菜单\n/id 我的 ID\n\n群管理员可管理自己的群，无需成为机器人全局管理员。"
+		text = "使用流程\n\n① 将机器人添加到超级群并设为管理员，授予删除消息、限制成员权限。\n② 联系部署者在网页后台「群组列表」审批授权，通过后点击「我的群组」选择群组，设置本群验证、审核和处罚；也可在群里发送 /settings 直达本群菜单。\n③ 新成员通过群内链接进行私聊验证。\n④ 回复可疑消息发送 /check 进行 AI 复核。\n\n/groups 我的群组\n/menu 主菜单\n/id 我的 ID\n\n群管理员只能管理已获授权的群，不能自行审批。机器人超级管理员可私聊使用 /approve 群ID、/reject 群ID、/revoke 群ID（可附原因）。"
 	default:
 		return s.Home(ctx, m)
 	}

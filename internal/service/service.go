@@ -32,6 +32,9 @@ func (s *Service) IsSuperAdmin(id int64) bool {
 }
 
 func (s *Service) Admin(ctx context.Context, chat, user int64) (bool, error) {
+	if ok, e := s.Store.GroupAuthorized(ctx, chat); e != nil || !ok {
+		return false, e
+	}
 	if s.IsSuperAdmin(user) {
 		return true, nil
 	}
@@ -104,6 +107,11 @@ func (s *Service) BotMembership(ctx context.Context, u domain.MemberUpdate) erro
 	}
 	if e := s.Store.RegisterGroup(ctx, u.Chat); e != nil {
 		return e
+	}
+	if ok, e := s.Store.GroupAuthorized(ctx, u.Chat.ID); e != nil {
+		return e
+	} else if !ok {
+		return s.AuthorizationNotice(ctx, u.Chat.ID)
 	}
 	if u.Chat.Type != "supergroup" || !u.New.Admin() || !u.New.CanDelete || !u.New.CanRestrict {
 		return s.Say(ctx, u.Chat.ID, "zh_CN", "bot_permissions")

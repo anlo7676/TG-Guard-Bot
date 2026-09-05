@@ -33,6 +33,7 @@ func TestPunishmentRechecksAdminBeforeDestructiveCalls(t *testing.T) {
 	}))
 	defer srv.Close()
 	decision := domain.Decision{Action: "ban", Delete: true}
+	mock.ExpectQuery("SELECT EXISTS").WillReturnRows(sqlmock.NewRows([]string{"ok"}).AddRow(true))
 	mock.ExpectExec("INSERT IGNORE INTO punishments").WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectQuery("SELECT decision,status,deleted,acted,created_at FROM punishments").WillReturnRows(sqlmock.NewRows([]string{"decision", "status", "deleted", "acted", "created_at"}).AddRow(store.JSON(decision), "pending", false, false, time.Now()))
 	mock.ExpectExec("UPDATE punishments SET status='skipped'").WithArgs("test").WillReturnResult(sqlmock.NewResult(0, 1))
@@ -53,6 +54,7 @@ func TestCompletedPunishmentRetryDoesNotCallTelegram(t *testing.T) {
 	r := miniredis.RunT(t)
 	cache := state.New(r.Addr(), "")
 	defer cache.R.Close()
+	mock.ExpectQuery("SELECT EXISTS").WillReturnRows(sqlmock.NewRows([]string{"ok"}).AddRow(true))
 	mock.ExpectExec("INSERT IGNORE INTO punishments").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery("SELECT decision,status,deleted,acted,created_at FROM punishments").WillReturnRows(sqlmock.NewRows([]string{"decision", "status", "deleted", "acted", "created_at"}).AddRow(`{"action":"ban"}`, "done", true, true, time.Now()))
 	s := &Service{Store: &store.Store{DB: db}, State: cache}

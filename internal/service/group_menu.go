@@ -55,7 +55,7 @@ func (s *Service) MyGroups(ctx context.Context, m domain.Message, before int64) 
 	}
 	text := "我的群组\n\n选择要管理的群组。每次查看和修改都会重新检查你的群管理员权限。"
 	if len(rows) == 0 {
-		text += "\n\n本页没有可管理的群组。可在目标超级群发送 /settings，直接打开该群设置。"
+		text += "\n\n本页没有可管理的已授权群组。请先联系部署者在网页后台批准接入。可在目标超级群发送 /settings，直接打开该群设置。"
 	}
 	if failed {
 		text += "\n部分群权限暂时无法确认，请稍后刷新。"

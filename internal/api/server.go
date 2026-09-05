@@ -48,6 +48,7 @@ func (s *Server) Handler() http.Handler {
 	admin.HandleFunc("POST /api/v1/system/test-ai", s.testAI)
 	admin.HandleFunc("GET /api/v1/dashboard", s.dashboard)
 	admin.HandleFunc("GET /api/v1/groups", s.groups)
+	admin.HandleFunc("PUT /api/v1/groups/{chat}/authorization", s.authorization)
 	admin.HandleFunc("GET /api/v1/groups/{chat}/settings", s.settings)
 	admin.HandleFunc("PUT /api/v1/groups/{chat}/settings", s.settings)
 	admin.HandleFunc("GET /api/v1/groups/{chat}/keywords", s.keywords)
@@ -205,7 +206,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	s.rows(w, r, `SELECT (SELECT COUNT(*) FROM bot_groups WHERE active=TRUE) AS groups_count,(SELECT COUNT(*) FROM users) AS users_count,(SELECT COUNT(*) FROM moderation_logs WHERE created_at>=UTC_DATE()) AS today_reviews,(SELECT COUNT(*) FROM punishments WHERE created_at>=UTC_DATE() AND deleted=TRUE) AS today_deletes,(SELECT COUNT(*) FROM ai_usage_logs WHERE created_at>=UTC_DATE() AND cached=FALSE) AS today_ai_calls,(SELECT COALESCE(SUM(input_tokens+output_tokens),0) FROM ai_usage_logs WHERE created_at>=UTC_DATE()) AS today_ai_tokens,(SELECT COUNT(*) FROM update_inbox WHERE status='dead') AS dead_updates`)
 }
 func (s *Server) groups(w http.ResponseWriter, r *http.Request) {
-	s.rows(w, r, "SELECT chat_id,title,active,created_at,updated_at FROM bot_groups WHERE chat_id<? ORDER BY chat_id DESC LIMIT 100", cursor(r))
+	s.rows(w, r, "SELECT chat_id,title,active,authorization,authorization_reason,created_at,updated_at FROM bot_groups WHERE chat_id<? ORDER BY chat_id DESC LIMIT 100", cursor(r))
 }
 func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 	chat, ok := s.groupID(w, r, false)
@@ -395,6 +396,12 @@ func (s *Server) groupID(w http.ResponseWriter, r *http.Request, global bool) (i
 	if !exists {
 		respond(w, 404, map[string]string{"error": "群组尚未接入"})
 		return 0, false
+	}
+	if r.Method != "GET" {
+		if e := s.Service.Store.RequireAuthorized(r.Context(), chat); e != nil {
+			respond(w, 403, map[string]string{"error": e.Error()})
+			return 0, false
+		}
 	}
 	return chat, true
 }
