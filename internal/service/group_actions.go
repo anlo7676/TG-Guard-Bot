@@ -25,7 +25,7 @@ func (s *Service) groupAction(ctx context.Context, m domain.Message, chat int64,
 			return true, e
 		}
 		if f.Kind == "text" {
-			return true, s.promptGroup(ctx, m, chat, "setting", f.Key, "设置欢迎语，最多 1000 字。支持 {name} 成员名称、{username} 用户名、{user_id} 用户 ID、{group} 群名、{timeout} 验证秒数。开启验证时，欢迎语在验证通过后发送。\n当前："+v.WelcomeText)
+			return true, s.promptGroup(ctx, m, chat, "setting", f.Key, "设置欢迎语，最多 1000 字。支持 {name} 成员名称、{username} 用户名、{user_id} 用户 ID、{group} 群名、{timeout} 验证秒数。开启验证时，欢迎语在验证通过后发送，并在 5 分钟内自动删除。\n当前："+v.WelcomeText)
 		}
 		if f.Kind == "number" {
 			return true, s.promptGroup(ctx, m, chat, "setting", f.Key, "设置"+f.Label+"，当前："+displayValue(settingValues(v)[f.Key]))

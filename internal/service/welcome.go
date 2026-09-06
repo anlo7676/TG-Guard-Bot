@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"tgguard/internal/domain"
 	"time"
@@ -60,8 +61,41 @@ func (s *Service) welcomeLocked(ctx context.Context, chat domain.Chat, u domain.
 	if ok, e := s.Store.GroupAuthorized(ctx, chat.ID); e != nil || !ok {
 		return e
 	}
-	if _, e = s.Bot.Send(ctx, chat.ID, welcomeText(v, chat, u, false), nil, 0); e != nil {
+	message, e := s.Bot.Send(ctx, chat.ID, welcomeText(v, chat, u, false), nil, 0)
+	if e != nil {
 		return e
 	}
-	return s.Store.MarkWelcomed(ctx, chat.ID, u.ID)
+	if e = s.Store.MarkWelcomed(ctx, chat.ID, u.ID, message); e != nil {
+		// Avoid leaving an unscheduled welcome when recording fails.
+		if cleanupErr := s.Bot.Delete(ctx, chat.ID, message); cleanupErr != nil {
+			slog.Error("unscheduled welcome cleanup failed", "chat_id", chat.ID, "message_id", message, "error", cleanupErr)
+		}
+		return e
+	}
+	return nil
+}
+
+func (s *Service) SweepWelcomeCleanup(ctx context.Context) error {
+	items, e := s.Store.DueWelcomeCleanup(ctx)
+	if e != nil {
+		return e
+	}
+	for _, item := range items {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		c, cancel := context.WithTimeout(ctx, 10*time.Second)
+		err := s.Bot.Delete(c, item.ChatID, item.MessageID)
+		cancel()
+		done, stop := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		recordErr := s.Store.FinishWelcomeCleanup(done, item, err)
+		stop()
+		if recordErr != nil {
+			return recordErr
+		}
+		if err != nil {
+			slog.Warn("welcome deletion will retry", "chat_id", item.ChatID, "message_id", item.MessageID, "error", err)
+		}
+	}
+	return nil
 }

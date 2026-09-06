@@ -61,6 +61,16 @@ func (h *Handler) Workers(ctx context.Context, count int) {
 			state.Sleep(ctx, 5*time.Second)
 		}
 	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for ctx.Err() == nil {
+			if e := h.Service.SweepWelcomeCleanup(ctx); e != nil && ctx.Err() == nil {
+				slog.Error("welcome cleanup failed", "error", e)
+			}
+			state.Sleep(ctx, time.Second)
+		}
+	}()
 	wg.Wait()
 }
 func (h *Handler) worker(ctx context.Context, id int) {

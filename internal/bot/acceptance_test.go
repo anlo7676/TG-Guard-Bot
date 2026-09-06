@@ -300,6 +300,20 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		if count("restrictChatMember") == 0 {
 			t.Fatal("join not restricted")
 		}
+		intruder := domain.Message{Chat: domain.Chat{ID: 88, Type: "private"}, From: &domain.User{ID: 88}}
+		if e := svc.StartVerification(ctx, intruder, v.Token); e != nil {
+			t.Fatal(e)
+		}
+		if !strings.Contains(fmt.Sprint(lastSend()["text"]), "这不是你的入群验证") {
+			t.Fatal("wrong user got a challenge")
+		}
+		if e := svc.AnswerVerification(ctx, v.Token, 88, "wrong"); e != nil {
+			t.Fatal(e)
+		}
+		untouched, e := db.Verification(ctx, v.Token)
+		if e != nil || untouched.Attempts != 0 || untouched.Status != "pending" {
+			t.Fatal("other user changed verification", e, untouched)
+		}
 		m := domain.Message{Chat: domain.Chat{ID: 77, Type: "private"}, From: &domain.User{ID: 77}}
 		if err = svc.StartVerification(ctx, m, v.Token); err != nil {
 			t.Fatal(err)
@@ -901,6 +915,59 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 					t.Fatal("successful replay reported invalid")
 				}
 			})
+		}
+	})
+	t.Run("welcome cleanup persists deadline and retries across service restart", func(t *testing.T) {
+		if e := db.ChangeSettings(ctx, chat.ID, 42, func(v *domain.Settings) error { v.WelcomeEnabled = true; v.VerificationEnabled = false; return nil }); e != nil {
+			t.Fatal(e)
+		}
+		if e := svc.Join(ctx, chat, domain.User{ID: 991122, FirstName: "自动删除测试"}); e != nil {
+			t.Fatal(e)
+		}
+		mu.Lock()
+		welcomeID := mid
+		mu.Unlock()
+		var seconds int
+		if e := db.DB.QueryRowContext(ctx, "SELECT TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(6),delete_at) FROM welcome_cleanup WHERE chat_id=? AND message_id=?", chat.ID, welcomeID).Scan(&seconds); e != nil || seconds < 290 || seconds > 300 {
+			t.Fatal("welcome deadline not five minutes", seconds, e)
+		}
+		deletes := count("deleteMessage")
+		if e := svc.SweepWelcomeCleanup(ctx); e != nil {
+			t.Fatal(e)
+		}
+		if count("deleteMessage") != deletes {
+			t.Fatal("welcome deleted early")
+		}
+		if _, e := db.DB.ExecContext(ctx, "UPDATE welcome_cleanup SET next_attempt_at=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 1 SECOND) WHERE chat_id=? AND message_id=?", chat.ID, welcomeID); e != nil {
+			t.Fatal(e)
+		}
+		mu.Lock()
+		failVerificationNotice = "delete"
+		mu.Unlock()
+		if e := svc.SweepWelcomeCleanup(ctx); e != nil {
+			t.Fatal(e)
+		}
+		var attempts int
+		var done bool
+		if e := db.DB.QueryRowContext(ctx, "SELECT attempts,done FROM welcome_cleanup WHERE chat_id=? AND message_id=?", chat.ID, welcomeID).Scan(&attempts, &done); e != nil || attempts != 1 || done {
+			t.Fatal("deletion failure not persisted", e)
+		}
+		if _, e := db.DB.ExecContext(ctx, "UPDATE welcome_cleanup SET next_attempt_at=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 1 SECOND) WHERE chat_id=? AND message_id=?", chat.ID, welcomeID); e != nil {
+			t.Fatal(e)
+		}
+		restarted := &service.Service{Store: db, Bot: svc.Bot}
+		if e := restarted.SweepWelcomeCleanup(ctx); e != nil {
+			t.Fatal(e)
+		}
+		if e := db.DB.QueryRowContext(ctx, "SELECT done FROM welcome_cleanup WHERE chat_id=? AND message_id=?", chat.ID, welcomeID).Scan(&done); e != nil || !done {
+			t.Fatal("restart did not finish deletion", e)
+		}
+		deletes = count("deleteMessage")
+		if e := restarted.SweepWelcomeCleanup(ctx); e != nil {
+			t.Fatal(e)
+		}
+		if count("deleteMessage") != deletes {
+			t.Fatal("completed cleanup repeated")
 		}
 	})
 	t.Run("expired menu and revoked permission", func(t *testing.T) {

@@ -126,7 +126,10 @@ func (s *Service) StartVerification(ctx context.Context, m domain.Message, token
 	if v.UserID == m.From.ID && v.Status == "verified" {
 		return s.text(ctx, m.Chat.ID, "这次验证已完成，无需重复验证；重新入群请使用新的验证链接。")
 	}
-	if v.UserID != m.From.ID || v.Status != "pending" || time.Now().After(v.ExpiresAt) {
+	if v.UserID != m.From.ID {
+		return s.text(ctx, m.Chat.ID, "这不是你的入群验证，无需操作。只有该验证对应的新成员可以完成验证。")
+	}
+	if v.Status != "pending" || time.Now().After(v.ExpiresAt) {
 		return s.Say(ctx, m.Chat.ID, "zh_CN", "invalid_verify")
 	}
 	if ok, e := s.Store.GroupAuthorized(ctx, v.ChatID); e != nil {
@@ -176,7 +179,7 @@ func (s *Service) AnswerVerification(ctx context.Context, token string, user int
 		return e
 	}
 	if v.UserID != user {
-		return s.Say(ctx, user, "zh_CN", "invalid_verify")
+		return s.text(ctx, user, "这不是你的入群验证，不能替他人提交答案。")
 	}
 	unlock, e := s.State.Lock(ctx, verifyLock(v.ChatID, user), 60*time.Second)
 	if e != nil {
