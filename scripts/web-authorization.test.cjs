@@ -44,3 +44,16 @@ test('group editor exposes welcome template and direct local rule actions',async
  assert.ok(html.indexOf('name="rule-ad_tasks-action"')<html.indexOf('name="rule-advertising-action"'));
  assert.equal(typeof h.get('#jump-default-rules').onclick,'function');
 });
+
+function feedbackSetup(){const h=setup();h.note={value:'',focus(){}};h.get('#inline-action-form').elements={note:h.note};vm.runInContext("editFeedback('-1001',17)",h.ctx);h.submitInline=()=>h.get('#inline-action-form').onsubmit({preventDefault(){}});return h}
+test('feedback requires explicit nonempty input and retains failed input for retry',async()=>{
+ const h=feedbackSetup();assert.equal(h.ctx.calls.length,0);await h.submitInline();assert.equal(h.ctx.calls.length,0);
+ h.note.value=' 本地规则误命中 ';h.ctx.testError='暂时失败';await h.submitInline();assert.equal(h.get('#inline-action-error').textContent,'暂时失败');assert.equal(h.note.value,' 本地规则误命中 ');assert.match(h.get('#feedback-editor').innerHTML,/inline-action-form/);
+ h.ctx.testError=null;vm.runInContext("state.chat='-9999'",h.ctx);await h.submitInline();assert.equal(h.ctx.calls[1].path,'/api/v1/groups/-1001/feedback');assert.equal(h.ctx.calls[1].options.body.note,'本地规则误命中');assert.equal(h.get('#feedback-editor').innerHTML,'');
+});
+test('inline confirmation cancellation and duplicate submission are safe',async()=>{
+ const h=setup();vm.runInContext("inlineAction('#keyword-editor','删除 #1','确认删除',()=>api('/delete',{}))",h.ctx);assert.equal(h.ctx.calls.length,0);h.get('#inline-action-cancel').onclick();assert.equal(h.ctx.calls.length,0);
+ vm.runInContext("inlineAction('#keyword-editor','删除 #1','确认删除',()=>new Promise(resolve=>{calls.push('delete');release=resolve}))",h.ctx);
+ const submit=()=>h.get('#inline-action-form').onsubmit({preventDefault(){}});const first=submit();await submit();h.get('#inline-action-cancel').onclick();assert.equal(h.ctx.calls.length,1);assert.notEqual(h.get('#keyword-editor').innerHTML,'');h.ctx.release();await first;assert.equal(h.get('#keyword-editor').innerHTML,'');
+});
+test('web workflows never depend on native confirmation dialogs',()=>{const s=fs.readFileSync(path.join(__dirname,'../internal/api/web/app.js'),'utf8');assert.doesNotMatch(s,/\b(?:prompt|confirm)\s*\(/)});

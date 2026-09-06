@@ -169,8 +169,7 @@ func (s *Service) groupAction(ctx context.Context, m domain.Message, chat int64,
 		}
 		for _, k := range ks {
 			if k.ID == id {
-				k.Enabled = p[4] == "true"
-				_, e = s.Store.SaveKeyword(ctx, k, m.From.ID)
+				e = s.Store.ChangeKeyword(ctx, chat, k.ID, m.From.ID, func(latest *domain.Keyword) error { latest.Enabled = p[4] == "true"; return nil })
 				if e != nil {
 					return true, e
 				}

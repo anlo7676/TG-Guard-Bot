@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	"tgguard/internal/domain"
 	"tgguard/internal/i18n"
 	"tgguard/internal/state"
@@ -129,6 +131,9 @@ func (s *Service) StartVerification(ctx context.Context, m domain.Message, token
 	if v.UserID != m.From.ID {
 		return s.text(ctx, m.Chat.ID, "这不是你的入群验证，无需操作。只有该验证对应的新成员可以完成验证。")
 	}
+	if v.Status == "cancelled" || v.Status == "releasing" {
+		return s.text(ctx, m.Chat.ID, "这次验证已取消，无需再答题；系统会自动解除本次验证造成的禁言。")
+	}
 	if v.Status != "pending" || time.Now().After(v.ExpiresAt) {
 		return s.Say(ctx, m.Chat.ID, "zh_CN", "invalid_verify")
 	}
@@ -166,6 +171,9 @@ func (s *Service) VerificationReply(ctx context.Context, m domain.Message) error
 	}
 	var token string
 	if e := s.State.Get(ctx, fmt.Sprintf("verify:prompt:%d:%d", m.From.ID, m.Reply.ID), &token); e != nil {
+		if !errors.Is(e, redis.Nil) {
+			return e
+		}
 		return s.text(ctx, m.Chat.ID, "这条操作提示已过期或不再有效。设置操作请重新打开对应菜单；入群验证请从群内最新验证链接进入。")
 	}
 	return s.AnswerVerification(ctx, token, m.From.ID, strings.TrimSpace(m.Text))
@@ -192,6 +200,9 @@ func (s *Service) AnswerVerification(ctx context.Context, token string, user int
 	}
 	if v.Status == "verified" {
 		return s.text(ctx, user, "你已通过这次验证，无需重复提交。")
+	}
+	if v.Status == "cancelled" || v.Status == "releasing" {
+		return s.text(ctx, user, "这次验证已取消，无需再答题；系统会自动解除本次验证造成的禁言。")
 	}
 	if v.Status == "completing" {
 		return s.finishVerification(ctx, v)
@@ -231,7 +242,7 @@ func (s *Service) finishVerification(ctx context.Context, v store.Verification) 
 		return e
 	}
 	status := "expired"
-	if !authorized || v.Status == "releasing" {
+	if !authorized || !settings.VerificationEnabled || v.Status == "releasing" {
 		if m.Status == "restricted" {
 			if e = s.Bot.Restore(ctx, v.ChatID, v.UserID); e != nil {
 				return e

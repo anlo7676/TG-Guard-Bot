@@ -69,6 +69,11 @@ func (s *Store) ChangeSettings(ctx context.Context, chat, actor int64, change fu
 	if _, err = tx.ExecContext(ctx, "INSERT INTO group_settings(chat_id,settings) VALUES(?,?) ON DUPLICATE KEY UPDATE settings=VALUES(settings)", chat, JSON(v)); err != nil {
 		return err
 	}
+	if !v.VerificationEnabled {
+		if _, err = tx.ExecContext(ctx, "UPDATE verification_sessions SET status='releasing',next_attempt_at=UTC_TIMESTAMP(6) WHERE chat_id=? AND status IN ('pending','completing','expiring')", chat); err != nil {
+			return err
+		}
+	}
 	if err = audit(ctx, tx, chat, actor, "settings.update", json.RawMessage(before), v); err != nil {
 		return err
 	}

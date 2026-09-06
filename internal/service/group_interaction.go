@@ -2,13 +2,16 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/redis/go-redis/v9"
+	"log/slog"
 	"regexp"
 	"strconv"
 	"strings"
+
 	"tgguard/internal/domain"
 	"tgguard/internal/state"
 	"time"
@@ -124,6 +127,7 @@ func (s *Service) GroupReply(ctx context.Context, m domain.Message) (bool, error
 		return false, nil
 	}
 	key := fmt.Sprintf("group:prompt:%d:%d", m.From.ID, m.Reply.ID)
+	started := time.Now()
 	ttl, err := s.State.R.PTTL(ctx, key).Result()
 	if err != nil {
 		return true, err
@@ -140,11 +144,23 @@ func (s *Service) GroupReply(ctx context.Context, m domain.Message) (bool, error
 		}
 		return true, err
 	}
+	restorePrompt := true
+	defer func() {
+		remaining := ttl - time.Since(started)
+		if restorePrompt && remaining > 0 {
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+			defer cancel()
+			if e := s.State.R.Set(cleanup, key, raw, remaining).Err(); e != nil {
+				slog.Error("group input recovery failed", "error", e)
+			}
+		}
+	}()
 	var p groupPrompt
 	if err = json.Unmarshal([]byte(raw), &p); err != nil {
 		return true, err
 	}
 	if m.Text == "/cancel" {
+		restorePrompt = false
 		return true, s.text(ctx, m.Chat.ID, "已取消这次输入。")
 	}
 	generation, err := s.State.R.Get(ctx, fmt.Sprintf("group:cancel:%d", m.From.ID)).Result()
@@ -152,13 +168,22 @@ func (s *Service) GroupReply(ctx context.Context, m domain.Message) (bool, error
 		return true, err
 	}
 	if generation != p.Generation {
+		restorePrompt = false
 		return true, s.text(ctx, m.Chat.ID, "这次输入已取消，请重新打开菜单。")
 	}
 	allowed, err := s.Admin(ctx, p.Chat, m.From.ID)
-	if err != nil || !allowed {
+	if err != nil {
+		return true, err
+	}
+	if !allowed {
+		restorePrompt = false
 		return true, s.text(ctx, m.Chat.ID, "权限检查未通过，未保存任何修改。")
 	}
 	if _, err = s.Store.MenuGroup(ctx, p.Chat); err != nil {
+		if err != sql.ErrNoRows {
+			return true, err
+		}
+		restorePrompt = false
 		return true, s.text(ctx, m.Chat.ID, "该群已不可用，未保存。")
 	}
 	value := strings.TrimSpace(m.Text)
@@ -221,6 +246,7 @@ func (s *Service) GroupReply(ctx context.Context, m domain.Message) (bool, error
 		if err == nil {
 			err = s.promptGroup(ctx, m, p.Chat, "keywordContent", p.Key, "第 2/2 步：填写回复内容。\n关键词："+value+"\n直接发送回复文字，可换行，不需要添加分隔符。", &k)
 			if err == nil {
+				restorePrompt = false
 				return true, nil
 			}
 		}
@@ -234,7 +260,11 @@ func (s *Service) GroupReply(ctx context.Context, m domain.Message) (bool, error
 			if value == "" {
 				err = fmt.Errorf("回复内容不能为空，请输入要发送给群成员的内容")
 			} else {
-				_, err = s.Store.SaveKeyword(ctx, k, m.From.ID)
+				if k.ID == 0 {
+					_, err = s.Store.SaveKeyword(ctx, k, m.From.ID)
+				} else {
+					err = s.Store.ChangeKeyword(ctx, k.ChatID, k.ID, m.From.ID, func(latest *domain.Keyword) error { latest.Keyword = k.Keyword; latest.Content = k.Content; return nil })
+				}
 			}
 		}
 		section = "keywords"
@@ -288,14 +318,14 @@ func (s *Service) GroupReply(ctx context.Context, m domain.Message) (bool, error
 	default:
 		return true, s.text(ctx, m.Chat.ID, "输入已失效，请重新打开菜单。")
 	}
+	if errors.Is(err, sql.ErrNoRows) {
+		restorePrompt = false
+		return true, s.text(ctx, m.Chat.ID, "规则或群组已被删除，无法继续保存。请重新打开菜单。")
+	}
 	if err != nil {
-		if ttl > 0 {
-			if e := s.State.R.Set(ctx, key, raw, ttl).Err(); e != nil {
-				return true, e
-			}
-		}
 		return true, s.text(ctx, m.Chat.ID, "未能保存："+err.Error()+"\n请修改后继续回复同一条设置提示，无需重新打开菜单。")
 	}
+	restorePrompt = false
 	return true, s.GroupMenu(ctx, m, fmt.Sprintf("gm:%d:%s", p.Chat, section))
 }
 

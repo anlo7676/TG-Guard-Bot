@@ -66,6 +66,7 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		Body   map[string]any
 	}{}
 	mid := int64(500)
+	failAdminLookupOnce := false
 	failNextWelcome := false
 	failVerificationNotice := ""
 	roles := map[int64]string{42: "administrator", 77: "member"}
@@ -87,6 +88,11 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		var result any = true
 		switch method {
 		case "getChatMember":
+			if failAdminLookupOnce {
+				failAdminLookupOnce = false
+				json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": 500, "description": "temporary permission failure"})
+				return
+			}
 			id := int64(in["user_id"].(float64))
 			role := roles[id]
 			if role == "" {
@@ -969,6 +975,109 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		if count("deleteMessage") != deletes {
 			t.Fatal("completed cleanup repeated")
 		}
+	})
+
+	t.Run("private input survives permission lookup failure", func(t *testing.T) {
+		m := domain.Message{Chat: domain.Chat{ID: 42, Type: "private"}, From: &domain.User{ID: 42}}
+		if e := svc.GroupMenu(ctx, m, "gm:-1001:field:rate_limit"); e != nil {
+			t.Fatal(e)
+		}
+		m.Reply = &domain.Message{ID: mid, From: &domain.User{ID: 900}}
+		m.Text = "24"
+		mu.Lock()
+		failAdminLookupOnce = true
+		mu.Unlock()
+		if handled, e := svc.GroupReply(ctx, m); !handled || e == nil {
+			t.Fatal("expected retriable permission failure", e)
+		}
+		if _, e := svc.GroupReply(ctx, m); e != nil {
+			t.Fatal(e)
+		}
+		v, e := db.Settings(ctx, chat.ID)
+		if e != nil || v.RateLimit != 24 {
+			t.Fatal("input lost", e, v.RateLimit)
+		}
+	})
+	t.Run("keyword wizard preserves concurrent status and priority edits", func(t *testing.T) {
+		k := domain.Keyword{ChatID: chat.ID, Keyword: "原词", Content: "旧回复", MatchType: "contains", ReplyType: "text", Enabled: true, Reply: true}
+		id, e := db.SaveKeyword(ctx, k, 42)
+		if e != nil {
+			t.Fatal(e)
+		}
+		m := domain.Message{Chat: domain.Chat{ID: 42, Type: "private"}, From: &domain.User{ID: 42}}
+		if e = svc.GroupMenu(ctx, m, fmt.Sprintf("gm:-1001:kwEdit:%d", id)); e != nil {
+			t.Fatal(e)
+		}
+		m.Reply = &domain.Message{ID: mid, From: &domain.User{ID: 900}}
+		m.Text = "新词"
+		handle(m)
+		m.Reply = &domain.Message{ID: mid, From: &domain.User{ID: 900}}
+		m.Text = "新回复"
+		if e = db.ChangeKeyword(ctx, chat.ID, id, 42, func(k *domain.Keyword) error { k.Enabled = false; k.Priority = 9; return nil }); e != nil {
+			t.Fatal(e)
+		}
+		handle(m)
+		ks, e := db.Keywords(ctx, chat.ID)
+		if e != nil {
+			t.Fatal(e)
+		}
+		for _, k := range ks {
+			if k.ID == id {
+				if k.Keyword != "新词" || k.Content != "新回复" || k.Enabled || k.Priority != 9 {
+					t.Fatal("concurrent fields overwritten", k)
+				}
+				return
+			}
+		}
+		t.Fatal("missing keyword")
+	})
+	t.Run("disabling verification releases pending members without punishment", func(t *testing.T) {
+		if e := db.ChangeSettings(ctx, chat.ID, 42, func(s *domain.Settings) error { s.VerificationEnabled = true; return nil }); e != nil {
+			t.Fatal(e)
+		}
+		const uid int64 = 887799
+		if e := svc.Join(ctx, chat, domain.User{ID: uid}); e != nil {
+			t.Fatal(e)
+		}
+		v, e := db.ActiveVerification(ctx, chat.ID, uid)
+		if e != nil {
+			t.Fatal(e)
+		}
+		mu.Lock()
+		roles[uid] = "restricted"
+		mu.Unlock()
+		if e = db.ChangeSettings(ctx, chat.ID, 42, func(s *domain.Settings) error { s.VerificationEnabled = false; return nil }); e != nil {
+			t.Fatal(e)
+		}
+		restores, bans := count("restrictChatMember"), count("banChatMember")
+		if e = svc.SweepVerification(ctx); e != nil {
+			t.Fatal(e)
+		}
+		v, e = db.Verification(ctx, v.Token)
+		if e != nil || v.Status != "cancelled" || count("restrictChatMember") != restores+1 || count("banChatMember") != bans {
+			t.Fatal("pending member not released", v.Status, e)
+		}
+		m := domain.Message{Chat: domain.Chat{ID: uid, Type: "private"}, From: &domain.User{ID: uid}}
+		if e = svc.StartVerification(ctx, m, v.Token); e != nil {
+			t.Fatal(e)
+		}
+		if !strings.Contains(fmt.Sprint(lastSend()["text"]), "已取消") {
+			t.Fatal("cancelled link misreported")
+		}
+		if e = svc.AnswerVerification(ctx, v.Token, uid, "25"); e != nil {
+			t.Fatal(e)
+		}
+		if !strings.Contains(fmt.Sprint(lastSend()["text"]), "已取消") {
+			t.Fatal("cancelled answer misreported")
+		}
+		before := count("sendMessage")
+		cancelled, cancel := context.WithCancel(ctx)
+		cancel()
+		m.Reply = &domain.Message{ID: 999, From: &domain.User{ID: 900}}
+		if e = svc.VerificationReply(cancelled, m); e == nil || count("sendMessage") != before {
+			t.Fatal("cache error misreported as expiry", e)
+		}
+
 	})
 	t.Run("expired menu and revoked permission", func(t *testing.T) {
 		m := domain.Message{Chat: domain.Chat{ID: 42, Type: "private"}, From: &domain.User{ID: 42}}
