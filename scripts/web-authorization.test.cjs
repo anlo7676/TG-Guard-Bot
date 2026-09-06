@@ -38,7 +38,7 @@ test('ad rule text editor preserves regex alternation and disabled state',()=>{
  assert.throws(()=>vm.runInContext("parseAdRules('包含|未知|词')",h.ctx));
 });
 test('group editor exposes welcome template and direct local rule actions',async()=>{
- const h=setup();vm.runInContext(`api=async()=>({welcome_enabled:true,welcome_text:'欢迎 {name}',rules:{advertising:{enabled:true,score:25,action:'mute'}},ad_rules:[{mode:'contains',pattern:'广告词',enabled:true,action:'delete'}]});`,h.ctx);
+ const h=setup();vm.runInContext(`api=async path=>path==='/api/v1/rule-catalog'?[{key:'advertising',label:'广告招揽',score:25,action:''},{key:'ad_tasks',label:'刷单返佣',score:60,action:'delete',example:'刷单返佣日结'}]:({welcome_enabled:true,welcome_text:'欢迎 {name}',rules:{advertising:{enabled:true,score:25,action:'mute'}},ad_rules:[{mode:'contains',pattern:'广告词',enabled:true,action:'delete'}]});`,h.ctx);
  await vm.runInContext("editGroup('-1001')",h.ctx);const html=h.get('#group-editor').innerHTML;
- for(const text of ['name="welcome_text"','欢迎 {name}','name="ad_rules"','包含|删除|广告词','name="rule-advertising-action"','value="mute" selected','封禁并清理发言'])assert.ok(html.includes(text),text);
+ for(const text of ['name="welcome_text"','欢迎 {name}','name="ad_rules"','包含|删除|广告词','name="rule-advertising-action"','value="mute" selected','封禁并清理发言','刷单返佣日结','name="rule-ad_tasks-action"','value="delete" selected'])assert.ok(html.includes(text),text);
 });

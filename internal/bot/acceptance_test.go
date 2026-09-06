@@ -399,6 +399,19 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			server.ServeHTTP(w, r)
 			return w
 		}
+		if w := request("GET", "/api/v1/rule-catalog", ""); w.Code != 200 {
+			t.Fatal("rule catalog unavailable", w.Code)
+		} else {
+			var catalog []domain.BuiltinRule
+			if e := json.Unmarshal(w.Body.Bytes(), &catalog); e != nil || len(catalog) != len(domain.BuiltinRules) {
+				t.Fatal("invalid rule catalog", e)
+			}
+			for _, rule := range catalog {
+				if rule.Pattern != "" && rule.Action != "delete" {
+					t.Fatal("default action missing", rule.Key)
+				}
+			}
+		}
 		if w := request("PUT", "/api/v1/groups/-1001/settings", `{"rate_limit":24}`); w.Code != 200 {
 			t.Fatal(w.Code, w.Body.String())
 		}

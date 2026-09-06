@@ -14,7 +14,7 @@ func TestDirectAdvertisingActions(t *testing.T) {
 			s.AutoBan = false
 			s.AutoWarn = false
 			s.Rules["advertising"] = domain.RuleSetting{Enabled: true, Score: 0, Action: action}
-			r := Evaluate(Normalize(domain.Message{Text: "稳赚包赔"}), s)
+			r := Evaluate(Normalize(domain.Message{Text: "接单"}), s)
 			d := Decide(r, nil, s, 0, false)
 			if d.Action != action || !d.Delete || r.Score != 100 {
 				t.Fatal("direct rule not enforced", r, d)
@@ -26,7 +26,7 @@ func TestDirectAdvertisingActions(t *testing.T) {
 				t.Fatal("protected member punished", p)
 			}
 			s.Rules["advertising"] = domain.RuleSetting{Enabled: false, Score: 100, Action: action}
-			if r := Evaluate(Normalize(domain.Message{Text: "稳赚包赔"}), s); r.LocalAction != "" {
+			if r := Evaluate(Normalize(domain.Message{Text: "接单"}), s); r.LocalAction != "" {
 				t.Fatal("disabled rule enforced")
 			}
 		})

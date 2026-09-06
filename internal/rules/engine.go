@@ -110,10 +110,13 @@ func Evaluate(n domain.Normalized, s domain.Settings) domain.Risk {
 		if matched {
 			r.Score += score
 			r.Matches = append(r.Matches, domain.Match{Rule: name, Score: score, Reason: reason})
-			r.LocalAction = strongerAction(r.LocalAction, s.Rules[name].Action)
+			r.LocalAction = strongerAction(r.LocalAction, domain.EffectiveRule(s, name).Action)
 		}
 	}
 	joined := n.Text + " " + strings.Join(n.URLs, " ")
+	for _, p := range compiledAdPresets {
+		add(p.rule.Key, p.regex.MatchString(joined), p.rule.Score, p.rule.Label)
+	}
 	add("url", len(n.URLs) > 0, 20, "外部链接")
 	add("telegram_link", tgRE.MatchString(joined), 40, "Telegram 引流链接")
 	contact := contactRE.MatchString(n.Text)

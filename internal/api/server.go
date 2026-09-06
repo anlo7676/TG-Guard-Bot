@@ -48,6 +48,7 @@ func (s *Server) Handler() http.Handler {
 	admin.HandleFunc("POST /api/v1/system/test-ai", s.testAI)
 	admin.HandleFunc("GET /api/v1/dashboard", s.dashboard)
 	admin.HandleFunc("GET /api/v1/groups", s.groups)
+	admin.HandleFunc("GET /api/v1/rule-catalog", func(w http.ResponseWriter, r *http.Request) { respond(w, 200, domain.BuiltinRules) })
 	admin.HandleFunc("PUT /api/v1/groups/{chat}/authorization", s.authorization)
 	admin.HandleFunc("GET /api/v1/groups/{chat}/settings", s.settings)
 	admin.HandleFunc("PUT /api/v1/groups/{chat}/settings", s.settings)

@@ -170,7 +170,7 @@ func (s Settings) Validate() error {
 		return errors.New("invalid review_access or language")
 	}
 	for k, r := range s.Rules {
-		if !one(k, "url", "telegram_link", "contact", "mention", "advertising", "gambling", "porn", "crypto", "caps", "emoji", "many_links") || r.Score < 0 || r.Score > 100 {
+		if _, known := FindBuiltinRule(k); !known || r.Score < 0 || r.Score > 100 {
 			return errors.New("invalid rule")
 		}
 	}

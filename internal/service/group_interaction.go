@@ -237,22 +237,9 @@ func (s *Service) CancelGroupInput(ctx context.Context, m domain.Message) error 
 	return s.text(ctx, m.Chat.ID, "已取消待填写的群设置。发送 /menu 返回菜单。")
 }
 
-var menuRules = []struct {
-	Key, Label string
-	Score      int
-}{{"url", "外部 URL", 20}, {"telegram_link", "Telegram 链接", 40}, {"contact", "联系方式", 25}, {"mention", "用户名引流", 20}, {"advertising", "广告招揽", 25}, {"gambling", "博彩推广", 35}, {"porn", "色情推广", 35}, {"crypto", "币圈招揽", 20}, {"caps", "大量大写", 15}, {"emoji", "大量表情", 15}, {"many_links", "大量链接", 25}}
+var menuRules = domain.BuiltinRules
 
-func ruleValue(v domain.Settings, key string) domain.RuleSetting {
-	if r, ok := v.Rules[key]; ok {
-		return r
-	}
-	for _, r := range menuRules {
-		if r.Key == key {
-			return domain.RuleSetting{Enabled: true, Score: r.Score}
-		}
-	}
-	return domain.RuleSetting{}
-}
+func ruleValue(v domain.Settings, key string) domain.RuleSetting { return domain.EffectiveRule(v, key) }
 func knownRule(key string) bool {
 	for _, r := range menuRules {
 		if r.Key == key {

@@ -146,7 +146,7 @@ func (s *Service) GroupMenu(ctx context.Context, m domain.Message, data string) 
 			}
 		}
 	case "rules":
-		text += fmt.Sprintf("AI 触发风险分：%d；直接处理风险分：%d\n点击规则可切换启用状态、修改评分。", v.AIThreshold, v.DirectThreshold)
+		text += fmt.Sprintf("AI 触发风险分：%d；直接处理风险分：%d\n常见广告预设默认直接删除，通用风险规则累计评分。点击规则可停用或修改动作。", v.AIThreshold, v.DirectThreshold)
 		for _, r := range menuRules {
 			value := ruleValue(v, r.Key)
 			rows = append(rows, []menuButton{button(fmt.Sprintf("%s · %s · %d 分", r.Label, displayValue(value.Enabled), value.Score)+" · "+ruleActionLabel(value.Action), prefix+"rule:"+r.Key)})
