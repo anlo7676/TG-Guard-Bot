@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/redis/go-redis/v9"
+	"regexp"
 	"strconv"
 	"strings"
 	"tgguard/internal/domain"
@@ -59,9 +60,10 @@ type groupPrompt struct {
 	Chat        int64
 	Action, Key string
 	Generation  string
+	Draft       *domain.Keyword
 }
 
-func (s *Service) promptGroup(ctx context.Context, m domain.Message, chat int64, action, key, hint string) error {
+func (s *Service) promptGroup(ctx context.Context, m domain.Message, chat int64, action, key, hint string, draft ...*domain.Keyword) error {
 	generation, err := s.State.R.Get(ctx, fmt.Sprintf("group:cancel:%d", m.From.ID)).Result()
 	if err != nil && !errors.Is(err, redis.Nil) {
 		return err
@@ -70,7 +72,14 @@ func (s *Service) promptGroup(ctx context.Context, m domain.Message, chat int64,
 	if err != nil {
 		return err
 	}
-	return s.State.Put(ctx, fmt.Sprintf("group:prompt:%d:%d", m.From.ID, id), groupPrompt{Chat: chat, Action: action, Key: key, Generation: generation}, 10*time.Minute)
+	p := groupPrompt{Chat: chat, Action: action, Key: key, Generation: generation}
+	if len(draft) > 0 {
+		p.Draft = draft[0]
+	}
+	if e := s.State.Put(ctx, fmt.Sprintf("group:prompt-kind:%d:%d", m.From.ID, id), true, 24*time.Hour); e != nil {
+		return e
+	}
+	return s.State.Put(ctx, fmt.Sprintf("group:prompt:%d:%d", m.From.ID, id), p, 10*time.Minute)
 }
 func settingPatch(v *domain.Settings, key, value string) error {
 	f, ok := domain.FindSetting(key)
@@ -115,9 +124,18 @@ func (s *Service) GroupReply(ctx context.Context, m domain.Message) (bool, error
 		return false, nil
 	}
 	key := fmt.Sprintf("group:prompt:%d:%d", m.From.ID, m.Reply.ID)
+	ttl, err := s.State.R.PTTL(ctx, key).Result()
+	if err != nil {
+		return true, err
+	}
 	raw, err := s.State.R.GetDel(ctx, key).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
+			if n, e := s.State.R.Exists(ctx, fmt.Sprintf("group:prompt-kind:%d:%d", m.From.ID, m.Reply.ID)).Result(); e != nil {
+				return true, e
+			} else if n > 0 {
+				return true, s.text(ctx, m.Chat.ID, "这一步已完成、取消或过期。请回复最新的设置提示，或重新点击设置按钮。")
+			}
 			return false, nil
 		}
 		return true, err
@@ -170,6 +188,56 @@ func (s *Service) GroupReply(ctx context.Context, m domain.Message) (bool, error
 			})
 		}
 		section = "rules"
+	case "keywordWords":
+		k := domain.Keyword{ChatID: p.Chat, Enabled: true, Reply: true, MatchType: "contains", ReplyType: "text"}
+		if p.Draft != nil {
+			k = *p.Draft
+		}
+		k.Keyword = value
+		if p.Key == "new" && strings.ContainsAny(value, "|｜") {
+			parts := strings.FieldsFunc(value, func(r rune) bool { return r == '|' || r == '｜' })
+			words := []string{}
+			for _, word := range parts {
+				word = strings.TrimSpace(word)
+				if word != "" {
+					words = append(words, regexp.QuoteMeta(word))
+				}
+			}
+			if len(words) == 0 {
+				err = fmt.Errorf("请至少填写一个关键词")
+			} else {
+				k.Keyword = strings.Join(words, "|")
+				k.MatchType = "regex"
+			}
+		}
+		check := k
+		check.Content = "待填写"
+		if err == nil {
+			err = check.Validate()
+			if err != nil {
+				err = fmt.Errorf("关键词为空、过长或格式无效，请修改后重试")
+			}
+		}
+		if err == nil {
+			err = s.promptGroup(ctx, m, p.Chat, "keywordContent", p.Key, "第 2/2 步：填写回复内容。\n关键词："+value+"\n直接发送回复文字，可换行，不需要添加分隔符。", &k)
+			if err == nil {
+				return true, nil
+			}
+		}
+		section = "keywords"
+	case "keywordContent":
+		if p.Draft == nil {
+			err = fmt.Errorf("关键词草稿已失效")
+		} else {
+			k := *p.Draft
+			k.Content = value
+			if value == "" {
+				err = fmt.Errorf("回复内容不能为空，请输入要发送给群成员的内容")
+			} else {
+				_, err = s.Store.SaveKeyword(ctx, k, m.From.ID)
+			}
+		}
+		section = "keywords"
 	case "keyword":
 		k := domain.Keyword{ChatID: p.Chat, Enabled: true, Reply: true, MatchType: "contains", ReplyType: "text"}
 		if p.Key != "new" {
@@ -221,7 +289,12 @@ func (s *Service) GroupReply(ctx context.Context, m domain.Message) (bool, error
 		return true, s.text(ctx, m.Chat.ID, "输入已失效，请重新打开菜单。")
 	}
 	if err != nil {
-		return true, s.text(ctx, m.Chat.ID, "未能保存："+err.Error()+"\n请重新点击对应设置按钮后输入。")
+		if ttl > 0 {
+			if e := s.State.R.Set(ctx, key, raw, ttl).Err(); e != nil {
+				return true, e
+			}
+		}
+		return true, s.text(ctx, m.Chat.ID, "未能保存："+err.Error()+"\n请修改后继续回复同一条设置提示，无需重新打开菜单。")
 	}
 	return true, s.GroupMenu(ctx, m, fmt.Sprintf("gm:%d:%s", p.Chat, section))
 }

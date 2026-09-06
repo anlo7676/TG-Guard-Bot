@@ -371,17 +371,40 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			t.Fatal(err)
 		}
 		m.Reply = &domain.Message{ID: mid, From: &domain.User{ID: 900}}
-		m.Text = "帮助 | 私聊创建成功"
+		m.Text = ""
+		handle(m)
+		if !strings.Contains(fmt.Sprint(lastSend()["text"]), "继续回复同一条") {
+			t.Fatal("invalid input cannot be retried")
+		}
+		m.Text = "帮助|使用方法"
+		handle(m)
+		if !strings.Contains(fmt.Sprint(lastSend()["text"]), "第 2/2 步") {
+			t.Fatal("keyword wizard did not advance")
+		}
+		m.Reply = &domain.Message{ID: mid, From: &domain.User{ID: 900}}
+		m.Text = "私聊创建成功 | 支持多行\n第二行"
 		handle(m)
 		ks, _ := db.Keywords(ctx, chat.ID)
 		if len(ks) != 2 {
 			t.Fatal("keyword creation failed")
+		}
+		foundAlias := false
+		for _, k := range ks {
+			if k.Keyword == "帮助|使用方法" && k.MatchType == "regex" && k.Content == "私聊创建成功 | 支持多行\n第二行" {
+				foundAlias = true
+			}
+		}
+		if !foundAlias {
+			t.Fatal("aliases or reply pipes lost")
 		}
 		m.Text = "重复提交 | 不应创建"
 		handle(m)
 		ks, _ = db.Keywords(ctx, chat.ID)
 		if len(ks) != 2 {
 			t.Fatal("consumed prompt reused")
+		}
+		if strings.Contains(fmt.Sprint(lastSend()["text"]), "验证无效") {
+			t.Fatal("configuration reply treated as verification")
 		}
 		m.Reply = nil
 		if err := svc.GroupMenu(ctx, m, "gm:-1001:field:rate_limit"); err != nil {

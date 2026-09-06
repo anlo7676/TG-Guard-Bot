@@ -163,7 +163,7 @@ func (s *Service) VerificationReply(ctx context.Context, m domain.Message) error
 	}
 	var token string
 	if e := s.State.Get(ctx, fmt.Sprintf("verify:prompt:%d:%d", m.From.ID, m.Reply.ID), &token); e != nil {
-		return s.Say(ctx, m.Chat.ID, "zh_CN", "invalid_verify")
+		return s.text(ctx, m.Chat.ID, "这条操作提示已过期或不再有效。设置操作请重新打开对应菜单；入群验证请从群内最新验证链接进入。")
 	}
 	return s.AnswerVerification(ctx, token, m.From.ID, strings.TrimSpace(m.Text))
 }

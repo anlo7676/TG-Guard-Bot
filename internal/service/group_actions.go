@@ -112,7 +112,7 @@ func (s *Service) groupAction(ctx context.Context, m domain.Message, chat int64,
 		}
 		return true, s.promptGroup(ctx, m, chat, "rule", p[3], "输入规则 "+p[3]+" 的风险加分（0–100 整数）。")
 	case "kwAdd":
-		return true, s.promptGroup(ctx, m, chat, "keyword", "new", "创建关键词：关键词 | 回复内容\n例如：官网 | https://example.com")
+		return true, s.promptGroup(ctx, m, chat, "keywordWords", "new", "第 1/2 步：填写关键词。\n例如：安卓\n多个同义词可用 | 分隔，例如：官网|网站|网址。\n下一步再填写回复内容。")
 	case "kw", "kwEdit", "kwToggle", "kwDelete", "kwDeleteYes":
 		if len(p) != 4 {
 			return true, nil
@@ -138,7 +138,7 @@ func (s *Service) groupAction(ctx context.Context, m domain.Message, chat int64,
 		target := prefix + "kw:" + p[3]
 		switch section {
 		case "kwEdit":
-			return true, s.promptGroup(ctx, m, chat, "keyword", p[3], "修改关键词和回复：关键词 | 回复内容\n会保留匹配方式、优先级和其他选项。")
+			return true, s.promptGroup(ctx, m, chat, "keywordWords", p[3], "第 1/2 步：填写新的关键词或正则。\n当前："+k.Keyword+"\n保留原有匹配方式，下一步填写回复内容。", &k)
 		case "kwToggle":
 			// This action opens explicit choices, preventing retries from toggling twice.
 			return true, s.groupMenuSend(ctx, m.Chat.ID, "选择关键词状态", [][]menuButton{{button("开启", prefix+"kwState:"+p[3]+":true"), button("关闭", prefix+"kwState:"+p[3]+":false")}, {button("返回", target)}})
