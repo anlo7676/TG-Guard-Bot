@@ -243,6 +243,12 @@ func (s *Service) finishVerification(ctx context.Context, v store.Verification) 
 		if e != nil {
 			return e
 		}
+		if protected && m.Status == "restricted" {
+			if e = s.Bot.Restore(ctx, v.ChatID, v.UserID); e != nil {
+				return e
+			}
+			status = "cancelled"
+		}
 		if !protected {
 			// Always finish the unban half of a kick, including retries after a partial failure.
 			if v.FailAction == "kick" {

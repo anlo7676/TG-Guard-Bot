@@ -16,6 +16,7 @@ type Config struct {
 	AIBaseURL, AIKey, AIModel                            string
 	AITimeout                                            time.Duration
 	Workers, AIConcurrency                               int
+	RedisDB                                              int
 	SuperAdmins                                          map[int64]bool
 	SettingsKey                                          string
 }
@@ -47,6 +48,9 @@ func Load() (Config, error) {
 		}
 	}
 	var err error
+	if c.RedisDB, err = number("REDIS_DB", 0, 0, 15); err != nil {
+		return c, err
+	}
 	if c.Workers, err = number("WORKERS", 8, 1, 64); err != nil {
 		return c, err
 	}

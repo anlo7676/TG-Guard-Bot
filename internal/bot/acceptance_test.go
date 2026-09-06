@@ -703,6 +703,36 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			t.Fatal("warning duplicated on completed retry")
 		}
 	})
+	t.Run("newly trusted pending member is released at verification expiry", func(t *testing.T) {
+		const memberID int64 = 887766
+		if e := db.ChangeSettings(ctx, chat.ID, 42, func(s *domain.Settings) error { s.VerificationEnabled = true; return nil }); e != nil {
+			t.Fatal(e)
+		}
+		if e := svc.Join(ctx, chat, domain.User{ID: memberID}); e != nil {
+			t.Fatal(e)
+		}
+		v, e := db.ActiveVerification(ctx, chat.ID, memberID)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if e = db.SaveList(ctx, domain.ListEntry{ChatID: chat.ID, UserID: memberID, Kind: "white"}, 42, false); e != nil {
+			t.Fatal(e)
+		}
+		mu.Lock()
+		roles[memberID] = "restricted"
+		mu.Unlock()
+		if _, e = db.DB.ExecContext(ctx, "UPDATE verification_sessions SET expires_at=DATE_SUB(UTC_TIMESTAMP(6),INTERVAL 1 SECOND) WHERE token=?", v.Token); e != nil {
+			t.Fatal(e)
+		}
+		restores, bans := count("restrictChatMember"), count("banChatMember")
+		if e = svc.SweepVerification(ctx); e != nil {
+			t.Fatal(e)
+		}
+		v, e = db.Verification(ctx, v.Token)
+		if e != nil || v.Status != "cancelled" || count("restrictChatMember") != restores+1 || count("banChatMember") != bans {
+			t.Fatal("trusted member not safely released", v.Status, e)
+		}
+	})
 	t.Run("expired menu and revoked permission", func(t *testing.T) {
 		m := domain.Message{Chat: domain.Chat{ID: 42, Type: "private"}, From: &domain.User{ID: 42}}
 		if err := svc.GroupMenu(ctx, m, "gm:-1001:home"); err != nil {

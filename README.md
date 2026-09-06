@@ -235,3 +235,11 @@ API：已登录部署者可 PUT /api/v1/groups/{chat}/authorization，JSON 为 s
 ## 警告说明（v1.4.1）
 
 群内警告优先使用用户名，否则使用昵称并链接对应 Telegram 用户；仅在两者均缺失时显示数字 ID。警告显示本地规则、刷屏检测、AI 复核或人工操作来源，以及本次处理、自动处罚累计次数和本群实际禁言／封禁阈值。计数来自本群已完成的自动处罚，不按天清零，人工警告不增加该计数。累计升级只适用于累计策略达到违规处罚条件的消息；低置信度警告及固定的单条规则动作不因次数升级，严重 AI 判定可按策略提前禁言。
+
+## 更换机器人与数据隔离（v1.5）
+
+启动时将 MySQL 和 Redis 逻辑库绑定到 getMe 返回的机器人 ID。不同机器人不能复用已绑定的数据；未绑定但含旧队列／验证／处罚／轮询游标的 MySQL，或非空 Redis，也会拒绝直接认领。防止更换 Token 后跳过新消息、重放旧处罚或复用旧私聊按钮。REDIS_DB 可选 0–15，默认 0，须为机器人专用。
+
+更换机器人时创建独立 MySQL 数据库及空 Redis 逻辑库，运行数据库迁移后，仅迁移 system_settings、group_settings、keyword_rules、list_entries 等配置；群登记可保留但设为 inactive、pending，重新接入审批。不要复制 bot_state、update_inbox、verification_sessions、punishments 或 Redis 会话。加密配置迁移需保留 SETTINGS_ENCRYPTION_KEY（或原 ADMIN_API_TOKEN）。旧运行数据留存于原库。旧版同一机器人原地升级需由部署者先确认原机器人 ID，再显式写入 MySQL bot_state 的 bot_id 及 Redis tg_guard:bot_id；不能用新机器人认领旧数据。
+
+本次同时修复：审核记录重新读取时恢复刷屏与本地直接动作标记；待验证成员加入白名单／可信名单后，在超时恢复流程解除验证禁言并取消验证。

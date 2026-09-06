@@ -17,7 +17,10 @@ import (
 type State struct{ R *redis.Client }
 
 func New(addr, password string) *State {
-	return &State{R: redis.NewClient(&redis.Options{Addr: addr, Password: password, PoolSize: 32, DialTimeout: 3 * time.Second, ReadTimeout: 3 * time.Second, WriteTimeout: 3 * time.Second})}
+	return NewDB(addr, password, 0)
+}
+func NewDB(addr, password string, database int) *State {
+	return &State{R: redis.NewClient(&redis.Options{DB: database, Addr: addr, Password: password, PoolSize: 32, DialTimeout: 3 * time.Second, ReadTimeout: 3 * time.Second, WriteTimeout: 3 * time.Second})}
 }
 func Token() (string, error) {
 	b := make([]byte, 24)

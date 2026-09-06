@@ -55,15 +55,22 @@ func run() error {
 		slog.Info("database migrations complete")
 		return nil
 	}
-	cache := state.New(c.RedisAddr, c.RedisPassword)
+	cache := state.NewDB(c.RedisAddr, c.RedisPassword, c.RedisDB)
 	defer cache.R.Close()
 	if e = cache.R.Ping(startup).Err(); e != nil {
 		return fmt.Errorf("Redis unavailable: %w", e)
 	}
-	tg := telegram.New(c.Token, cache)
+	tg := telegram.New(c.Token, nil)
 	if e = tg.Identify(startup); e != nil {
 		return e
 	}
+	if e = db.BindBot(startup, tg.ID); e != nil {
+		return e
+	}
+	if e = cache.BindBot(startup, tg.ID); e != nil {
+		return e
+	}
+	tg.State = cache
 	ids := []int64{}
 	for id := range c.SuperAdmins {
 		ids = append(ids, id)
@@ -139,7 +146,7 @@ func run() error {
 			}
 		}
 	}()
-	slog.Info("TG Guard started", "bot", tg.Username, "mode", c.Mode, "workers", c.Workers, "http_addr", c.HTTPAddr,"build",buildinfo.Info())
+	slog.Info("TG Guard started", "bot", tg.Username, "mode", c.Mode, "workers", c.Workers, "http_addr", c.HTTPAddr, "build", buildinfo.Info())
 	select {
 	case <-ctx.Done():
 	case e = <-errCh:

@@ -40,6 +40,44 @@ func TestMySQLIntegration(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
+	t.Run("unbound legacy runtime cannot silently change bots", func(t *testing.T) {
+		if e := s.SaveOffset(ctx, 100); e != nil {
+			t.Fatal(e)
+		}
+		if e := s.BindBot(ctx, 11); e == nil {
+			t.Fatal("legacy offset accepted")
+		}
+		if _, e := s.DB.ExecContext(ctx, "DELETE FROM bot_state WHERE name='poll_offset'"); e != nil {
+			t.Fatal(e)
+		}
+	})
+	t.Run("persistent bot identity and log evidence survive reload", func(t *testing.T) {
+		if e := s.BindBot(ctx, 11); e != nil {
+			t.Fatal(e)
+		}
+		if e := s.BindBot(ctx, 11); e != nil {
+			t.Fatal(e)
+		}
+		if e := s.BindBot(ctx, 22); e == nil {
+			t.Fatal("different bot reused database")
+		}
+		for _, tc := range []struct {
+			key      string
+			risk     domain.Risk
+			decision domain.Decision
+		}{
+			{"evidence-spam", domain.Risk{Spam: true, Score: 100, Matches: []domain.Match{{Rule: "spam"}}}, domain.Decision{Action: "warn", Reason: "spam"}},
+			{"evidence-direct", domain.Risk{LocalAction: "delete", Score: 100, Matches: []domain.Match{{Rule: "ad_tasks"}}}, domain.Decision{Action: "delete", Reason: "local_ad_rule"}},
+		} {
+			l, e := s.SaveLog(ctx, Log{EventKey: tc.key, ChatID: -9000, UserID: 99, Risk: tc.risk, Decision: tc.decision, Source: "automatic"})
+			if e != nil {
+				t.Fatal(e)
+			}
+			if l.Risk.Spam != tc.risk.Spam || l.Risk.LocalAction != tc.risk.LocalAction {
+				t.Fatal("evidence lost", l)
+			}
+		}
+	})
 	t.Run("settings and lists isolated", func(t *testing.T) {
 		settings := domain.DefaultSettings()
 		settings.AIEnabled = true

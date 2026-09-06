@@ -325,6 +325,14 @@ func scanLog(row interface{ Scan(...any) error }) (Log, error) {
 		}
 	}
 	e = json.Unmarshal(decision, &l.Decision)
+	for _, match := range l.Risk.Matches {
+		if match.Rule == "spam" {
+			l.Risk.Spam = true
+		}
+	}
+	if l.Decision.Reason == "local_ad_rule" {
+		l.Risk.LocalAction = l.Decision.Action
+	}
 	return l, e
 }
 

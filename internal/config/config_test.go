@@ -7,7 +7,7 @@ import (
 
 func base(t *testing.T) {
 	t.Helper()
-	for _, k := range []string{"BOT_MODE", "BOT_SUPER_ADMINS", "WEBHOOK_URL", "WEBHOOK_SECRET", "WORKERS", "AI_CONCURRENCY", "AI_TIMEOUT", "AI_API_KEY", "AI_MODEL", "AI_BASE_URL"} {
+	for _, k := range []string{"REDIS_DB", "BOT_MODE", "BOT_SUPER_ADMINS", "WEBHOOK_URL", "WEBHOOK_SECRET", "WORKERS", "AI_CONCURRENCY", "AI_TIMEOUT", "AI_API_KEY", "AI_MODEL", "AI_BASE_URL"} {
 		t.Setenv(k, "")
 	}
 	t.Setenv("BOT_TOKEN", "fake-token")
@@ -22,7 +22,7 @@ func TestConfiguration(t *testing.T) {
 	}
 }
 func TestInvalidConfiguration(t *testing.T) {
-	for _, tc := range []struct{ k, v string }{{"ADMIN_API_TOKEN", "weak"}, {"WORKERS", "0"}, {"WORKERS", "bad"}, {"BOT_MODE", "unknown"}, {"AI_TIMEOUT", "2m"}, {"BOT_SUPER_ADMINS", "abc"}, {"AI_API_KEY", "key"}} {
+	for _, tc := range []struct{ k, v string }{{"REDIS_DB", "-1"}, {"REDIS_DB", "16"}, {"ADMIN_API_TOKEN", "weak"}, {"WORKERS", "0"}, {"WORKERS", "bad"}, {"BOT_MODE", "unknown"}, {"AI_TIMEOUT", "2m"}, {"BOT_SUPER_ADMINS", "abc"}, {"AI_API_KEY", "key"}} {
 		t.Run(tc.k+tc.v, func(t *testing.T) {
 			base(t)
 			t.Setenv(tc.k, tc.v)
