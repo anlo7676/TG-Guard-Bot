@@ -686,6 +686,23 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			t.Fatal("ordinary member ID command not redirected")
 		}
 	})
+	t.Run("warning sends user mention and configured escalation without duplicate retries", func(t *testing.T) {
+		l := store.Log{EventKey: "warning-notice-test", ChatID: chat.ID, UserID: 987654, MessageID: 9999, Source: "automatic", Decision: domain.Decision{Action: "warn", Delete: true}, AI: &domain.AIResult{IsAd: true, Confidence: .92}}
+		if e := svc.Punish(ctx, l, 0); e != nil {
+			t.Fatal(e)
+		}
+		out := lastSend()
+		if out["parse_mode"] != "HTML" || !strings.Contains(fmt.Sprint(out["text"]), "tg://user?id=987654") || !strings.Contains(fmt.Sprint(out["text"]), "AI 复核") {
+			t.Fatal(out)
+		}
+		sends := count("sendMessage")
+		if e := svc.Punish(ctx, l, 0); e != nil {
+			t.Fatal(e)
+		}
+		if count("sendMessage") != sends {
+			t.Fatal("warning duplicated on completed retry")
+		}
+	})
 	t.Run("expired menu and revoked permission", func(t *testing.T) {
 		m := domain.Message{Chat: domain.Chat{ID: 42, Type: "private"}, From: &domain.User{ID: 42}}
 		if err := svc.GroupMenu(ctx, m, "gm:-1001:home"); err != nil {

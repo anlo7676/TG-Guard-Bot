@@ -166,7 +166,12 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 			if se != nil {
 				return se
 			}
-			e = s.Say(ctx, l.ChatID, settings.Language, "warning", l.UserID)
+			count, ce := s.Store.ViolationCount(ctx, l.ChatID, l.UserID)
+			if ce != nil {
+				return ce
+			}
+			l.Decision = d
+			e = s.Bot.Call(ctx, "sendMessage", map[string]any{"chat_id": l.ChatID, "text": warningNotice(l, u.User, settings, count), "parse_mode": "HTML"}, nil)
 		case "mute":
 			seconds := int(time.Until(p.CreatedAt.Add(time.Duration(d.Duration) * time.Second)).Seconds())
 			if seconds > 0 {
