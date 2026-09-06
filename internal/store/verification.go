@@ -13,7 +13,7 @@ import (
 var ErrVerification = errors.New("verification invalid, expired, wrong answer or wrong user")
 
 func (s *Store) CancelVerification(ctx context.Context, chat, user int64) error {
-	_, e := s.DB.ExecContext(ctx, "UPDATE verification_sessions SET status='cancelled' WHERE chat_id=? AND user_id=? AND status IN ('pending','completing','expiring','releasing','releasing')", chat, user)
+	_, e := s.DB.ExecContext(ctx, "UPDATE verification_sessions SET status='cancelled' WHERE chat_id=? AND user_id=? AND status IN ('pending','completing','expiring','releasing')", chat, user)
 	return e
 }
 
@@ -47,7 +47,7 @@ func (s *Store) Verification(ctx context.Context, token string) (Verification, e
 	return scanVerification(s.DB.QueryRowContext(ctx, "SELECT "+verifyColumns+" FROM verification_sessions WHERE token=?", token))
 }
 func (s *Store) ActiveVerification(ctx context.Context, chat, user int64) (Verification, error) {
-	return scanVerification(s.DB.QueryRowContext(ctx, "SELECT "+verifyColumns+" FROM verification_sessions WHERE chat_id=? AND user_id=? AND status IN ('pending','completing','expiring','releasing','releasing') ORDER BY created_at DESC LIMIT 1", chat, user))
+	return scanVerification(s.DB.QueryRowContext(ctx, "SELECT "+verifyColumns+" FROM verification_sessions WHERE chat_id=? AND user_id=? AND status IN ('pending','completing','expiring','releasing') ORDER BY created_at DESC LIMIT 1", chat, user))
 }
 func (s *Store) CreateVerification(ctx context.Context, v Verification) error {
 	_, e := s.DB.ExecContext(ctx, "INSERT INTO verification_sessions(token,chat_id,user_id,challenge_type,question,answer_hash,fail_action,expires_at) VALUES(?,?,?,?,?,?,?,?)", v.Token, v.ChatID, v.UserID, v.Type, v.Question, v.AnswerHash, v.FailAction, v.ExpiresAt)
@@ -100,7 +100,7 @@ func (s *Store) DueVerifications(ctx context.Context) ([]Verification, error) {
 	if e != nil {
 		return nil, e
 	}
-	rows, e := s.DB.QueryContext(ctx, "SELECT "+verifyColumns+" FROM verification_sessions WHERE status IN ('expiring','completing','releasing') AND next_attempt_at<=UTC_TIMESTAMP(6) ORDER BY next_attempt_at LIMIT 100")
+	rows, e := s.DB.QueryContext(ctx, "SELECT "+verifyColumns+" FROM verification_sessions WHERE (status IN ('expiring','completing','releasing') OR (status IN ('verified','expired','cancelled','blocked','left') AND notice_done=FALSE)) AND next_attempt_at<=UTC_TIMESTAMP(6) ORDER BY next_attempt_at LIMIT 100")
 	if e != nil {
 		return nil, e
 	}
@@ -138,6 +138,17 @@ func (s *Store) FinishVerification(ctx context.Context, v Verification, status s
 }
 
 func (s *Store) VerificationRetry(ctx context.Context, token string, cause error) error {
-	_, e := s.DB.ExecContext(ctx, "UPDATE verification_sessions SET next_attempt_at=DATE_ADD(UTC_TIMESTAMP(6),INTERVAL LEAST(300,5*(recovery_attempts+1)) SECOND),recovery_attempts=recovery_attempts+1,last_error=? WHERE token=? AND status IN ('completing','expiring','releasing')", clip(cause.Error(), 500), token)
+	_, e := s.DB.ExecContext(ctx, "UPDATE verification_sessions SET next_attempt_at=DATE_ADD(UTC_TIMESTAMP(6),INTERVAL LEAST(300,5*(recovery_attempts+1)) SECOND),recovery_attempts=recovery_attempts+1,last_error=? WHERE token=? AND (status IN ('completing','expiring','releasing') OR notice_done=FALSE)", clip(cause.Error(), 500), token)
 	return e
+}
+
+func (s *Store) FinishVerificationNotices(ctx context.Context, token string) error {
+	_, e := s.DB.ExecContext(ctx, "UPDATE verification_sessions SET notice_done=TRUE,last_error='' WHERE token=?", token)
+	return e
+}
+
+func (s *Store) VerificationNoticesDone(ctx context.Context, token string) (bool, error) {
+	var done bool
+	e := s.DB.QueryRowContext(ctx, "SELECT notice_done FROM verification_sessions WHERE token=?", token).Scan(&done)
+	return done, e
 }

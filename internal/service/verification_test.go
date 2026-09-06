@@ -48,6 +48,8 @@ func TestExpiredVerificationOnlyUnbansOwnedKick(t *testing.T) {
 			mock.ExpectBegin()
 			mock.ExpectExec("UPDATE verification_sessions SET status=").WithArgs("expired", "expired", "token", "expiring").WillReturnResult(sqlmock.NewResult(0, 1))
 			mock.ExpectCommit()
+			mock.ExpectQuery("SELECT notice_done").WithArgs("token").WillReturnRows(sqlmock.NewRows([]string{"notice_done"}).AddRow(false))
+			mock.ExpectExec("UPDATE verification_sessions SET notice_done=TRUE").WithArgs("token").WillReturnResult(sqlmock.NewResult(0, 1))
 			mock.ExpectQuery("SELECT settings FROM group_settings").WithArgs(int64(-100)).WillReturnRows(sqlmock.NewRows([]string{"settings"}))
 			s := &Service{Store: &store.Store{DB: db}, State: cache, Bot: &telegram.Client{BaseURL: srv.URL, HTTP: srv.Client()}}
 			err = s.finishVerification(context.Background(), store.Verification{Token: "token", ChatID: -100, UserID: 42, Status: "expiring", FailAction: "kick", KickStarted: owned})
@@ -61,5 +63,22 @@ func TestExpiredVerificationOnlyUnbansOwnedKick(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestCompletedVerificationNoticeIgnoresStaleRecovery(t *testing.T) {
+	db, mock, e := sqlmock.New()
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer db.Close()
+	mock.ExpectQuery("SELECT settings FROM group_settings").WillReturnRows(sqlmock.NewRows([]string{"settings"}))
+	mock.ExpectQuery("SELECT notice_done").WithArgs("done").WillReturnRows(sqlmock.NewRows([]string{"notice_done"}).AddRow(true))
+	s := &Service{Store: &store.Store{DB: db}}
+	if e = s.finishVerification(context.Background(), store.Verification{Token: "done", Status: "verified"}); e != nil {
+		t.Fatal(e)
+	}
+	if e = mock.ExpectationsWereMet(); e != nil {
+		t.Fatal(e)
 	}
 }

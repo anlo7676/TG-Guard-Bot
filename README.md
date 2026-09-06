@@ -243,3 +243,9 @@ API：已登录部署者可 PUT /api/v1/groups/{chat}/authorization，JSON 为 s
 更换机器人时创建独立 MySQL 数据库及空 Redis 逻辑库，运行数据库迁移后，仅迁移 system_settings、group_settings、keyword_rules、list_entries 等配置；群登记可保留但设为 inactive、pending，重新接入审批。不要复制 bot_state、update_inbox、verification_sessions、punishments 或 Redis 会话。加密配置迁移需保留 SETTINGS_ENCRYPTION_KEY（或原 ADMIN_API_TOKEN）。旧运行数据留存于原库。旧版同一机器人原地升级需由部署者先确认原机器人 ID，再显式写入 MySQL bot_state 的 bot_id 及 Redis tg_guard:bot_id；不能用新机器人认领旧数据。
 
 本次同时修复：审核记录重新读取时恢复刷屏与本地直接动作标记；待验证成员加入白名单／可信名单后，在超时恢复流程解除验证禁言并取消验证。
+
+## 验证后续通知恢复（v1.5.2）
+
+验证完成后，清理验证提示和私聊成功通知的失败会持久化重试，不再只写日志。已完成的后续通知会记录完成标记；重试只补通知，不重新执行欢迎或权限变更。重复提交已通过的验证会明确提示已完成。升级迁移将既有终态记录标为通知已处理，避免向历史成员集中补发消息。
+
+2026-09-06 按用户确认，已清理旧机器人 8429656729／8934664978 的本地运行数据：删除原 tgguard、tgguard_8934664978 数据库，删除 Redis DB 0 的 20 个旧缓存键及旧本地备份。当前 tgguard_7958769155 与 Redis DB 1 保留；前文“旧库留存”描述为切换时的历史状态，现已按要求清理。

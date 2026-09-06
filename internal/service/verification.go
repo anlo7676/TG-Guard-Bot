@@ -123,6 +123,9 @@ func (s *Service) StartVerification(ctx context.Context, m domain.Message, token
 	if e != nil {
 		return e
 	}
+	if v.UserID == m.From.ID && v.Status == "verified" {
+		return s.text(ctx, m.Chat.ID, "这次验证已完成，无需重复验证；重新入群请使用新的验证链接。")
+	}
 	if v.UserID != m.From.ID || v.Status != "pending" || time.Now().After(v.ExpiresAt) {
 		return s.Say(ctx, m.Chat.ID, "zh_CN", "invalid_verify")
 	}
@@ -180,6 +183,16 @@ func (s *Service) AnswerVerification(ctx context.Context, token string, user int
 		return e
 	}
 	defer unlock()
+	v, e = s.Store.Verification(ctx, token)
+	if e != nil {
+		return e
+	}
+	if v.Status == "verified" {
+		return s.text(ctx, user, "你已通过这次验证，无需重复提交。")
+	}
+	if v.Status == "completing" {
+		return s.finishVerification(ctx, v)
+	}
 	v, e = s.Store.Answer(ctx, token, user, answer)
 	if errors.Is(e, store.ErrVerification) {
 		return s.Say(ctx, user, "zh_CN", "invalid_verify")
@@ -190,7 +203,18 @@ func (s *Service) AnswerVerification(ctx context.Context, token string, user int
 	return s.finishVerification(ctx, v)
 }
 
+func verificationTerminal(status string) bool {
+	return status == "verified" || status == "expired" || status == "cancelled" || status == "blocked" || status == "left"
+}
 func (s *Service) finishVerification(ctx context.Context, v store.Verification) error {
+	if verificationTerminal(v.Status) {
+		settings, e := s.Store.Settings(ctx, v.ChatID)
+		if e != nil {
+			return e
+		}
+		return s.finishVerificationNotices(ctx, v, settings)
+	}
+
 	m, e := s.Bot.Member(ctx, v.ChatID, v.UserID)
 	if e != nil {
 		return e
@@ -292,19 +316,31 @@ func (s *Service) finishVerification(ctx context.Context, v store.Verification) 
 	if e = s.State.R.Del(ctx, "verify:"+v.Token).Err(); e != nil {
 		slog.Warn("verification cache cleanup failed", "error", e)
 	}
+	v.Status = status
+	return s.finishVerificationNotices(ctx, v, settings)
+}
+func (s *Service) finishVerificationNotices(ctx context.Context, v store.Verification, settings domain.Settings) error {
+	done, e := s.Store.VerificationNoticesDone(ctx, v.Token)
+	if e != nil || done {
+		return e
+	}
 	if v.PromptID > 0 {
-		if e = s.Bot.Delete(ctx, v.ChatID, v.PromptID); e != nil {
-			slog.Warn("verification prompt cleanup failed", "error", e)
+		if e := s.Bot.Delete(ctx, v.ChatID, v.PromptID); e != nil {
+			return e
 		}
 	}
-	if status == "verified" {
-		if e = s.Say(ctx, v.UserID, settings.Language, "verified"); e != nil {
-			slog.Warn("verification success notice failed", "error", e)
+	if v.Status == "verified" {
+		if e := s.Say(ctx, v.UserID, settings.Language, "verified"); e != nil {
+			return e
 		}
 	}
-	s.LogChannel(ctx, v.ChatID, fmt.Sprintf("验证记录：用户 %d，状态 %s", v.UserID, status))
+	if e := s.Store.FinishVerificationNotices(ctx, v.Token); e != nil {
+		return e
+	}
+	s.LogChannel(ctx, v.ChatID, fmt.Sprintf("验证记录：用户 %d，状态 %s", v.UserID, v.Status))
 	return nil
 }
+
 func (s *Service) SweepVerification(ctx context.Context) error {
 	vs, e := s.Store.DueVerifications(ctx)
 	if e != nil {
@@ -320,7 +356,7 @@ func (s *Service) SweepVerification(ctx context.Context) error {
 			current, readErr := s.Store.Verification(c, v.Token)
 			if readErr != nil {
 				e = readErr
-			} else if current.Status == "completing" || current.Status == "expiring" || current.Status == "releasing" {
+			} else if current.Status == "completing" || current.Status == "expiring" || current.Status == "releasing" || verificationTerminal(current.Status) {
 				e = s.finishVerification(c, current)
 			}
 			unlock()

@@ -67,6 +67,7 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 	}{}
 	mid := int64(500)
 	failNextWelcome := false
+	failVerificationNotice := ""
 	roles := map[int64]string{42: "administrator", 77: "member"}
 	tg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var in map[string]any
@@ -78,6 +79,11 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			Method string
 			Body   map[string]any
 		}{method, in})
+		if (failVerificationNotice == "delete" && method == "deleteMessage") || (failVerificationNotice == "private" && method == "sendMessage" && strings.HasPrefix(fmt.Sprint(in["text"]), "验证成功")) {
+			failVerificationNotice = ""
+			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": 500, "description": "temporary verification notice failure"})
+			return
+		}
 		var result any = true
 		switch method {
 		case "getChatMember":
@@ -822,6 +828,56 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		}
 		if count("sendMessage") != sends+1 || lastSend()["chat_id"] != float64(user.ID) {
 			t.Fatal("disabled welcome sent to group")
+		}
+	})
+	t.Run("verification notices recover after committed success", func(t *testing.T) {
+		for i, kind := range []string{"delete", "private"} {
+			t.Run(kind, func(t *testing.T) {
+				user := domain.User{ID: int64(778800 + i), FirstName: "通知测试"}
+				if e := svc.Join(ctx, chat, user); e != nil {
+					t.Fatal(e)
+				}
+				v, e := db.ActiveVerification(ctx, chat.ID, user.ID)
+				if e != nil {
+					t.Fatal(e)
+				}
+				var a, b int
+				fmt.Sscanf(v.Question, "%d + %d = ?", &a, &b)
+				mu.Lock()
+				failVerificationNotice = kind
+				mu.Unlock()
+				if e = svc.AnswerVerification(ctx, v.Token, user.ID, fmt.Sprint(a+b)); e == nil {
+					t.Fatal("notification failure ignored")
+				}
+				v, e = db.Verification(ctx, v.Token)
+				if e != nil || v.Status != "verified" {
+					t.Fatal("verification rolled back for notice failure", e, v.Status)
+				}
+				muted := count("restrictChatMember")
+				if e = svc.SweepVerification(ctx); e != nil {
+					t.Fatal(e)
+				}
+				if count("restrictChatMember") != muted {
+					t.Fatal("notification retry changed permissions")
+				}
+				var done bool
+				if e = db.DB.QueryRowContext(ctx, "SELECT notice_done FROM verification_sessions WHERE token=?", v.Token).Scan(&done); e != nil || !done {
+					t.Fatal("notice not completed", e)
+				}
+				sends, deletes := count("sendMessage"), count("deleteMessage")
+				if e = svc.SweepVerification(ctx); e != nil {
+					t.Fatal(e)
+				}
+				if count("sendMessage") != sends || count("deleteMessage") != deletes {
+					t.Fatal("completed notices repeated")
+				}
+				if e = svc.AnswerVerification(ctx, v.Token, user.ID, fmt.Sprint(a+b)); e != nil {
+					t.Fatal(e)
+				}
+				if !strings.Contains(fmt.Sprint(lastSend()["text"]), "已通过") {
+					t.Fatal("successful replay reported invalid")
+				}
+			})
 		}
 	})
 	t.Run("expired menu and revoked permission", func(t *testing.T) {
