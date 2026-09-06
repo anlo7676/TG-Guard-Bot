@@ -9,6 +9,13 @@ import (
 )
 
 func welcomeText(v domain.Settings, chat domain.Chat, u domain.User, verify bool) string {
+	if verify {
+		name := u.FirstName
+		if name == "" {
+			name = fmt.Sprint(u.ID)
+		}
+		return fmt.Sprintf("%s，请在 %d 秒内点击下方验证按钮，进入私聊完成验证。验证期间暂时不能发言。", name, v.VerificationTimeout)
+	}
 	text := ""
 	if v.WelcomeEnabled {
 		name := u.FirstName
@@ -27,9 +34,6 @@ func welcomeText(v domain.Settings, chat domain.Chat, u domain.User, verify bool
 			text = string(r[:3000])
 		}
 	}
-	if verify {
-		text += fmt.Sprintf("\n\n请在 %d 秒内点击下方验证按钮，进入私聊完成验证。验证期间暂时不能发言。", v.VerificationTimeout)
-	}
 	return strings.TrimSpace(text)
 }
 func (s *Service) welcomeOnly(ctx context.Context, chat domain.Chat, u domain.User, v domain.Settings) error {
@@ -41,6 +45,14 @@ func (s *Service) welcomeOnly(ctx context.Context, chat domain.Chat, u domain.Us
 		return e
 	}
 	defer unlock()
+	return s.welcomeLocked(ctx, chat, u, v)
+}
+
+// Caller holds verifyLock, including verification recovery.
+func (s *Service) welcomeLocked(ctx context.Context, chat domain.Chat, u domain.User, v domain.Settings) error {
+	if !v.WelcomeEnabled {
+		return nil
+	}
 	sent, e := s.Store.WelcomeSent(ctx, chat.ID, u.ID)
 	if e != nil || sent {
 		return e

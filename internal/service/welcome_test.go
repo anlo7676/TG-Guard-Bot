@@ -11,11 +11,14 @@ func TestWelcomeTemplateAndMandatoryVerification(t *testing.T) {
 	s.WelcomeText = "你好 {name} {username}，欢迎来到 {group}！ID {user_id}；{timeout} 秒"
 	chat := domain.Chat{Title: "测试群"}
 	user := domain.User{ID: 7, FirstName: "新人", Username: "newuser"}
-	text := welcomeText(s, chat, user, true)
-	for _, want := range []string{"新人", "@newuser", "测试群", "ID 7", "180 秒", "验证期间"} {
+	text := welcomeText(s, chat, user, false)
+	for _, want := range []string{"新人", "@newuser", "测试群", "ID 7", "180 秒"} {
 		if !strings.Contains(text, want) {
 			t.Fatal(text)
 		}
+	}
+	if prompt := welcomeText(s, chat, user, true); strings.Contains(prompt, "你好") || !strings.Contains(prompt, "验证按钮") {
+		t.Fatal("welcome sent before verification", prompt)
 	}
 	s.WelcomeEnabled = false
 	text = welcomeText(s, chat, user, true)
@@ -28,7 +31,7 @@ func TestWelcomeTemplateAndMandatoryVerification(t *testing.T) {
 	s.WelcomeEnabled = true
 	s.WelcomeText = strings.Repeat("{group}", 140)
 	chat.Title = strings.Repeat("群", 255)
-	if len([]rune(welcomeText(s, chat, user, true))) > 4096 {
+	if len([]rune(welcomeText(s, chat, user, false))) > 4096 {
 		t.Fatal("expanded template too long")
 	}
 }

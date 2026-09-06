@@ -66,6 +66,7 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		Body   map[string]any
 	}{}
 	mid := int64(500)
+	failNextWelcome := false
 	roles := map[int64]string{42: "administrator", 77: "member"}
 	tg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var in map[string]any
@@ -89,8 +90,13 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		case "getChatAdministrators":
 			result = []any{map[string]any{"status": "administrator", "user": map[string]any{"id": 42}}}
 		case "getChat":
-			result = map[string]any{"id": -1001, "type": "supergroup", "permissions": map[string]any{"can_send_messages": true}}
+			result = map[string]any{"id": in["chat_id"], "title": "Acceptance A", "type": "supergroup", "permissions": map[string]any{"can_send_messages": true}}
 		case "sendMessage":
+			if failNextWelcome && strings.HasPrefix(fmt.Sprint(in["text"]), "验后欢迎") {
+				failNextWelcome = false
+				json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": 500, "description": "temporary send failure"})
+				return
+			}
 			mid++
 			result = map[string]any{"message_id": mid}
 		}
@@ -731,6 +737,91 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		v, e = db.Verification(ctx, v.Token)
 		if e != nil || v.Status != "cancelled" || count("restrictChatMember") != restores+1 || count("banChatMember") != bans {
 			t.Fatal("trusted member not safely released", v.Status, e)
+		}
+	})
+	t.Run("welcome after verification retries and deduplicates", func(t *testing.T) {
+		if e := db.ChangeSettings(ctx, chat.ID, 42, func(s *domain.Settings) error {
+			s.VerificationEnabled = true
+			s.WelcomeEnabled = true
+			s.WelcomeText = "验后欢迎 {user_id} 加入 {group}"
+			return nil
+		}); e != nil {
+			t.Fatal(e)
+		}
+		user := domain.User{ID: 889900, FirstName: "待验证新人"}
+		if e := svc.Join(ctx, chat, user); e != nil {
+			t.Fatal(e)
+		}
+		if strings.Contains(fmt.Sprint(lastSend()["text"]), "验后欢迎") {
+			t.Fatal("welcome sent before verification")
+		}
+		v, e := db.ActiveVerification(ctx, chat.ID, user.ID)
+		if e != nil {
+			t.Fatal(e)
+		}
+		var a, b int
+		fmt.Sscanf(v.Question, "%d + %d = ?", &a, &b)
+		mu.Lock()
+		failNextWelcome = true
+		mu.Unlock()
+		if e = svc.AnswerVerification(ctx, v.Token, user.ID, fmt.Sprint(a+b)); e == nil {
+			t.Fatal("simulated welcome failure ignored")
+		}
+		v, e = db.Verification(ctx, v.Token)
+		if e != nil || v.Status != "completing" {
+			t.Fatal("welcome failure not recoverable", e, v.Status)
+		}
+		if e = svc.SweepVerification(ctx); e != nil {
+			t.Fatal(e)
+		}
+		v, e = db.Verification(ctx, v.Token)
+		if e != nil || v.Status != "verified" {
+			t.Fatal(e, v.Status)
+		}
+		sent, e := db.WelcomeSent(ctx, chat.ID, user.ID)
+		if e != nil || !sent {
+			t.Fatal("welcome marker missing", e)
+		}
+		mu.Lock()
+		found := false
+		for _, c := range calls {
+			if c.Method == "sendMessage" && fmt.Sprint(c.Body["text"]) == "验后欢迎 889900 加入 Acceptance A" && c.Body["chat_id"] == float64(chat.ID) {
+				found = true
+			}
+		}
+		mu.Unlock()
+		if !found {
+			t.Fatal("group template not delivered")
+		}
+		sends := count("sendMessage")
+		if e = svc.SweepVerification(ctx); e != nil {
+			t.Fatal(e)
+		}
+		if e = svc.Join(ctx, chat, user); e != nil {
+			t.Fatal(e)
+		}
+		if count("sendMessage") != sends {
+			t.Fatal("duplicate welcome")
+		}
+		// Disabled welcomes still allow successful verification.
+		if e = db.ChangeSettings(ctx, chat.ID, 42, func(s *domain.Settings) error { s.WelcomeEnabled = false; return nil }); e != nil {
+			t.Fatal(e)
+		}
+		user.ID++
+		if e = svc.Join(ctx, chat, user); e != nil {
+			t.Fatal(e)
+		}
+		v, e = db.ActiveVerification(ctx, chat.ID, user.ID)
+		if e != nil {
+			t.Fatal(e)
+		}
+		fmt.Sscanf(v.Question, "%d + %d = ?", &a, &b)
+		sends = count("sendMessage")
+		if e = svc.AnswerVerification(ctx, v.Token, user.ID, fmt.Sprint(a+b)); e != nil {
+			t.Fatal(e)
+		}
+		if count("sendMessage") != sends+1 || lastSend()["chat_id"] != float64(user.ID) {
+			t.Fatal("disabled welcome sent to group")
 		}
 	})
 	t.Run("expired menu and revoked permission", func(t *testing.T) {

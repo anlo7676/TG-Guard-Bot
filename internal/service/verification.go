@@ -275,6 +275,17 @@ func (s *Service) finishVerification(ctx context.Context, v store.Verification) 
 	} else {
 		return nil
 	}
+	// Keep completing recoverable until the group welcome has been delivered.
+	if status == "verified" && settings.WelcomeEnabled {
+		var chat domain.Chat
+		if e = s.Bot.Call(ctx, "getChat", map[string]any{"chat_id": v.ChatID}, &chat); e != nil {
+			return e
+		}
+		chat.ID = v.ChatID
+		if e = s.welcomeLocked(ctx, chat, m.User, settings); e != nil {
+			return e
+		}
+	}
 	if e = s.Store.FinishVerification(ctx, v, status); e != nil {
 		return e
 	}
