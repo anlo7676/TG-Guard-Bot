@@ -16,7 +16,11 @@ func TestDirectAdvertisingActions(t *testing.T) {
 			s.Rules["advertising"] = domain.RuleSetting{Enabled: true, Score: 0, Action: action}
 			r := Evaluate(Normalize(domain.Message{Text: "接单"}), s)
 			d := Decide(r, nil, s, 0, false)
-			if d.Action != action || !d.Delete || r.Score != 100 {
+			want := action
+			if want == "delete" {
+				want = "warn"
+			}
+			if d.Action != want || !d.Delete || r.Score != 100 {
 				t.Fatal("direct rule not enforced", r, d)
 			}
 			if action == "mute" && d.Duration != s.MuteSeconds {

@@ -470,7 +470,7 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 
 		beforeCalls := count("sendMessage") + count("deleteMessage") + count("banChatMember")
 		for _, sample := range []struct{ body, want string }{
-			{`{"text":"足球红单推荐交流群.加入免费领红包 @losusnh9071bot"}`, `"action":"delete"`},
+			{`{"text":"足球红单推荐交流群.加入免费领红包 @losusnh9071bot"}`, `"action":"warn"`},
 			{`{"text":"你好哈喽"}`, `"action":"allow"`},
 		} {
 			w := request("POST", "/api/v1/groups/-1001/rules/test", sample.body)
@@ -676,12 +676,17 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			}
 			msg := domain.Message{ID: int64(9000 + i), Chat: other, From: &domain.User{ID: int64(90 + i)}, Text: "这里有测试广告"}
 			event := int64(60000 + i)
+			warned := count("sendMessage")
 			deleted, banned, muted := count("deleteMessage"), count("banChatMember"), count("restrictChatMember")
 			if e := svc.Moderate(ctx, event, msg); e != nil {
 				t.Fatal(e)
 			}
 			log, e := db.GetLog(ctx, fmt.Sprintf("auto:%d", event))
-			if e != nil || log.Decision.Action != action || !log.Decision.Delete {
+			want := action
+			if want == "delete" {
+				want = "warn"
+			}
+			if e != nil || log.Decision.Action != want || !log.Decision.Delete {
 				t.Fatal("wrong local enforcement", log, e)
 			}
 			if count("deleteMessage") != deleted+1 {
@@ -695,6 +700,9 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			}
 			if e := svc.Moderate(ctx, event, msg); e != nil {
 				t.Fatal(e)
+			}
+			if action == "delete" && (count("sendMessage") != warned+1 || !strings.Contains(fmt.Sprint(lastSend()["text"]), "继续命中此规则仍会") || !strings.Contains(fmt.Sprint(lastSend()["text"]), "tg://user?id=")) {
+				t.Fatal("warning missing, misleading or duplicated")
 			}
 			if count("deleteMessage") != deleted+1 {
 				t.Fatal("retry duplicated punishment")

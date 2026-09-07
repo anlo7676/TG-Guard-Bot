@@ -11,7 +11,7 @@ func TestWarningExplainsIdentitySourceAndActualPolicy(t *testing.T) {
 	s := domain.DefaultSettings()
 	l := store.Log{UserID: 42, Source: "automatic", AI: &domain.AIResult{IsAd: true, Confidence: .92}, Decision: domain.Decision{Action: "warn", Delete: true}}
 	text := warningNotice(l, domain.User{Username: "alice"}, s, 0)
-	for _, want := range []string{"@alice", "tg://user?id=42", "AI 复核", "92%", "原消息已删除", "第 1 次", "第 2 次及以后禁言 1 小时", "未开启累计自动封禁", "仅删除规则不会"} {
+	for _, want := range []string{"@alice", "tg://user?id=42", "AI 复核", "92%", "原消息已删除", "第 1 次", "第 2 次及以后禁言 1 小时", "未开启累计自动封禁", "删除并警告规则不会"} {
 		if !strings.Contains(text, want) {
 			t.Fatal(want, text)
 		}

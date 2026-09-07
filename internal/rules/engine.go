@@ -183,6 +183,9 @@ func Decide(r domain.Risk, ai *domain.AIResult, s domain.Settings, violations in
 			return domain.Decision{Action: "shadow_log", Reason: "protected_user"}
 		}
 		d = domain.Decision{Action: r.LocalAction, Delete: true, Reason: "local_ad_rule"}
+		if d.Action == "delete" {
+			d.Action = "warn"
+		}
 		if d.Action == "mute" {
 			d.Duration = s.MuteSeconds
 		}

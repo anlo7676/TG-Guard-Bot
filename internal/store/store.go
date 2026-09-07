@@ -332,6 +332,9 @@ func scanLog(row interface{ Scan(...any) error }) (Log, error) {
 	}
 	if l.Decision.Reason == "local_ad_rule" {
 		l.Risk.LocalAction = l.Decision.Action
+		if l.Decision.Action == "warn" && l.Decision.Delete {
+			l.Risk.LocalAction = "delete"
+		}
 	}
 	return l, e
 }

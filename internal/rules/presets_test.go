@@ -30,7 +30,7 @@ func TestEveryDefaultAdPresetDetectsItsCategory(t *testing.T) {
 				t.Fatal("category example not detected", preset.Example, r)
 			}
 			d := Decide(r, nil, s, 0, false)
-			if d.Action != "delete" || !d.Delete {
+			if d.Action != "warn" || !d.Delete {
 				t.Fatal("default must delete locally without AI", d)
 			}
 			if d := Decide(r, nil, s, 0, true); d.Action != "shadow_log" || d.Delete {
@@ -85,7 +85,7 @@ func TestPresetDetectsHiddenGroupLink(t *testing.T) {
 func TestScreenshotAdsAndNormalCounterexamples(t *testing.T) {
 	s := domain.DefaultSettings()
 	for _, text := range []string{"足球红单推荐交流群.加入免费领红包 @losusnh9071bot", "拍店铺招牌🛍️ 8 o/张", "不想上班的来，上个j8的班 来帮我干活，一个月包提奥迪A7 看我兼届", "有绿色项目不做？来和我一起做黑U，交易所的来 一天五个达不溜轻轻松松"} {
-		if d := Decide(Evaluate(Normalize(domain.Message{Text: text}), s), nil, s, 0, false); d.Action != "delete" {
+		if d := Decide(Evaluate(Normalize(domain.Message{Text: text}), s), nil, s, 0, false); d.Action != "warn" {
 			t.Errorf("missed %q: %+v", text, d)
 		}
 	}

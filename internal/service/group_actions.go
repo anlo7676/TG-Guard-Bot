@@ -91,7 +91,7 @@ func (s *Service) groupAction(ctx context.Context, m domain.Message, chat int64,
 		}
 		r := ruleValue(v, p[3])
 		next := strconv.FormatBool(!r.Enabled)
-		return true, s.groupMenuSend(ctx, m.Chat.ID, fmt.Sprintf("群 %d\n规则 %s：%s，风险加分 %d\n命中动作：%s", chat, p[3], displayValue(r.Enabled), r.Score, ruleActionLabel(r.Action)), [][]menuButton{{button("切换启用状态", prefix+"ruleSet:"+p[3]+":"+next), button("修改风险分", prefix+"ruleScore:"+p[3])}, {button("仅累计评分", prefix+"ruleAction:"+p[3]+":score"), button("命中即删除", prefix+"ruleAction:"+p[3]+":delete")}, {button("删除并禁言", prefix+"ruleAction:"+p[3]+":mute"), button("封禁并清理发言", prefix+"ruleAction:"+p[3]+":ban")}, {button("返回规则", prefix+"rules")}})
+		return true, s.groupMenuSend(ctx, m.Chat.ID, fmt.Sprintf("群 %d\n规则 %s：%s，风险加分 %d\n命中动作：%s", chat, p[3], displayValue(r.Enabled), r.Score, ruleActionLabel(r.Action)), [][]menuButton{{button("切换启用状态", prefix+"ruleSet:"+p[3]+":"+next), button("修改风险分", prefix+"ruleScore:"+p[3])}, {button("仅累计评分", prefix+"ruleAction:"+p[3]+":score"), button("删除并警告", prefix+"ruleAction:"+p[3]+":delete")}, {button("删除并禁言", prefix+"ruleAction:"+p[3]+":mute"), button("封禁并清理发言", prefix+"ruleAction:"+p[3]+":ban")}, {button("返回规则", prefix+"rules")}})
 	case "ruleSet":
 		if len(p) != 5 || !knownRule(p[3]) || (p[4] != "true" && p[4] != "false") {
 			return true, nil
