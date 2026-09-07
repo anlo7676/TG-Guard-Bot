@@ -36,7 +36,7 @@ func warningNotice(l store.Log, u domain.User, s domain.Settings, completed int)
 		lines = append(lines, fmt.Sprintf("本群累计自动处罚：第 %d 次（不按天清零）。", completed+1))
 	}
 	if l.Risk.LocalAction == "delete" {
-		lines = append(lines, "命中本地广告规则；继续命中此规则仍会删除消息并警告，不会仅因本规则累计次数自动禁言或封禁。")
+		lines = append(lines, "命中本地广告规则；累计超过 3 次（第 4 次起）将删除并持续禁言，记录后由管理员决定封禁或解除禁言。")
 		return strings.Join(lines, "\n")
 	}
 	lines = append(lines, "按当前群设置，再次达到累计策略的违规处罚条件时：")
@@ -50,7 +50,7 @@ func warningNotice(l store.Log, u domain.User, s domain.Settings, completed int)
 	} else {
 		lines = append(lines, "• 未开启累计自动封禁。")
 	}
-	lines = append(lines, "单条广告规则指定的删除／禁言／封禁会直接执行；删除并警告规则不会因重复命中自动升级。低置信度警告不自动升级。")
+	lines = append(lines, "单条广告规则指定的删除／禁言／封禁会直接执行；删除并警告规则在累计第 4 次起禁言待管理员处理。低置信度警告不自动升级。")
 	if s.AutoMute {
 		lines = append(lines, "高置信度严重广告可能提前禁言。")
 	}

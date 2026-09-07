@@ -701,7 +701,7 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			if e := svc.Moderate(ctx, event, msg); e != nil {
 				t.Fatal(e)
 			}
-			if action == "delete" && (count("sendMessage") != warned+1 || !strings.Contains(fmt.Sprint(lastSend()["text"]), "继续命中此规则仍会") || !strings.Contains(fmt.Sprint(lastSend()["text"]), "tg://user?id=")) {
+			if action == "delete" && (count("sendMessage") != warned+1 || !strings.Contains(fmt.Sprint(lastSend()["text"]), "累计超过 3 次") || !strings.Contains(fmt.Sprint(lastSend()["text"]), "tg://user?id=")) {
 				t.Fatal("warning missing, misleading or duplicated")
 			}
 			if count("deleteMessage") != deleted+1 {
@@ -1106,6 +1106,64 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			t.Fatal("cache error misreported as expiry", e)
 		}
 
+	})
+
+	t.Run("fourth local ad is permanently muted for admin review", func(t *testing.T) {
+		if e := db.ChangeSettings(ctx, other.ID, 42, func(v *domain.Settings) error {
+			v.ModerationEnabled = true
+			v.SpamEnabled = false
+			v.AutoBan = true
+			v.BanAfter = 3
+			v.AdRules = []domain.AdRule{{Pattern: "累计广告样例", Mode: "contains", Action: "delete", Enabled: true}}
+			return nil
+		}); e != nil {
+			t.Fatal(e)
+		}
+		const uid int64 = 990077
+		bans, mutes := count("banChatMember"), count("restrictChatMember")
+		for i := 0; i < 4; i++ {
+			m := domain.Message{ID: int64(80100 + i), Chat: other, From: &domain.User{ID: uid}, Text: "累计广告样例"}
+			if e := svc.Moderate(ctx, int64(80100+i), m); e != nil {
+				t.Fatal(e)
+			}
+			l, e := db.GetLog(ctx, fmt.Sprintf("auto:%d", 80100+i))
+			if e != nil {
+				t.Fatal(e)
+			}
+			want := "warn"
+			if i == 3 {
+				want = "mute"
+				if l.Decision.Duration != 0 || l.Decision.Reason != "local_ad_review" {
+					t.Fatal("not pending admin review", l.Decision)
+				}
+			}
+			if l.Decision.Action != want {
+				t.Fatal(i, l.Decision)
+			}
+		}
+		if count("banChatMember") != bans || count("restrictChatMember") != mutes+1 {
+			t.Fatal("unexpected ban/mute")
+		}
+		mu.Lock()
+		for _, c := range calls {
+			if c.Method == "restrictChatMember" && c.Body["user_id"] == float64(uid) {
+				if _, ok := c.Body["until_date"]; ok {
+					t.Error("review mute has expiry")
+				}
+			}
+		}
+		mu.Unlock()
+		n, e := db.ViolationCount(ctx, other.ID, uid)
+		if e != nil || n != 4 {
+			t.Fatal("punishment not recorded", n, e)
+		}
+		sends := count("sendMessage")
+		if e = svc.Moderate(ctx, 80103, domain.Message{ID: 80103, Chat: other, From: &domain.User{ID: uid}, Text: "累计广告样例"}); e != nil {
+			t.Fatal(e)
+		}
+		if count("sendMessage") != sends || count("restrictChatMember") != mutes+1 {
+			t.Fatal("retry duplicated review action")
+		}
 	})
 	t.Run("expired menu and revoked permission", func(t *testing.T) {
 		m := domain.Message{Chat: domain.Chat{ID: 42, Type: "private"}, From: &domain.User{ID: 42}}

@@ -185,6 +185,11 @@ func Decide(r domain.Risk, ai *domain.AIResult, s domain.Settings, violations in
 		d = domain.Decision{Action: r.LocalAction, Delete: true, Reason: "local_ad_rule"}
 		if d.Action == "delete" {
 			d.Action = "warn"
+			if violations >= 3 {
+				d.Action = "mute"
+				d.Reason = "local_ad_review"
+				return d
+			}
 		}
 		if d.Action == "mute" {
 			d.Duration = s.MuteSeconds

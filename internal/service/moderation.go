@@ -173,6 +173,13 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 			l.Decision = d
 			e = s.Bot.Call(ctx, "sendMessage", map[string]any{"chat_id": l.ChatID, "text": warningNotice(l, u.User, settings, count), "parse_mode": "HTML"}, nil)
 		case "mute":
+			if d.Reason == "local_ad_review" {
+				e = s.Bot.Restrict(ctx, l.ChatID, l.UserID, 0)
+				if e == nil {
+					e = s.Bot.Call(ctx, "sendMessage", map[string]any{"chat_id": l.ChatID, "parse_mode": "HTML", "text": fmt.Sprintf("<a href=\"tg://user?id=%d\">用户 %d</a> 累计违规超过 3 次，原消息已删除，已禁言并记录，等待管理员处理。\n管理员可使用 /ban %d 封禁，或 /unmute %d 解除禁言。", l.UserID, l.UserID, l.UserID, l.UserID)}, nil)
+				}
+				break
+			}
 			seconds := int(time.Until(p.CreatedAt.Add(time.Duration(d.Duration) * time.Second)).Seconds())
 			if seconds > 0 {
 				e = s.Bot.Restrict(ctx, l.ChatID, l.UserID, max(30, seconds))

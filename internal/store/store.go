@@ -330,6 +330,9 @@ func scanLog(row interface{ Scan(...any) error }) (Log, error) {
 			l.Risk.Spam = true
 		}
 	}
+	if l.Decision.Reason == "local_ad_review" {
+		l.Risk.LocalAction = "delete"
+	}
 	if l.Decision.Reason == "local_ad_rule" {
 		l.Risk.LocalAction = l.Decision.Action
 		if l.Decision.Action == "warn" && l.Decision.Delete {

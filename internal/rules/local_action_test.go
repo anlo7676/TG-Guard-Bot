@@ -52,3 +52,23 @@ func TestCustomAdvertisingRulesAndStrongestAction(t *testing.T) {
 		t.Fatal("normal content matched", r)
 	}
 }
+
+func TestLocalAdReviewThreshold(t *testing.T) {
+	s := domain.DefaultSettings()
+	s.AutoBan = true
+	s.BanAfter = 1
+	r := domain.Risk{Score: 100, LocalAction: "delete"}
+	for _, n := range []int{0, 1, 2, 3, 4, 20} {
+		d := Decide(r, nil, s, n, false)
+		if n < 3 {
+			if d.Action != "warn" || !d.Delete {
+				t.Fatal(n, d)
+			}
+		} else if d.Action != "mute" || d.Duration != 0 || d.Reason != "local_ad_review" {
+			t.Fatal(n, d)
+		}
+	}
+	if d := Decide(r, nil, s, 10, true); d.Action != "shadow_log" || d.Delete {
+		t.Fatal(d)
+	}
+}
