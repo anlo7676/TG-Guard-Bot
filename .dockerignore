@@ -1,6 +1,45 @@
-.git
+# 本地配置与密钥不进入构建上下文
 .env
-tmp
+.env.*
+**/*.pem
+**/*.key
+
+# Git、编辑器和会话资料
+.git
+.github
+.idea
+.vscode
+.codex-remote-attachments
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# 本地构建、运行数据与备份
 bin
-*.exe
+tmp
+dist
+tgguard
+tgguard.exe
+coverage
 coverage*
+backups
+dumps
+data
+**/*.exe
+**/*.test
+**/*.prof
+**/*.log
+**/*.pid
+**/*.bak
+**/*.swp
+**/*.swo
+**/*~
+go.work
+go.work.sum
+
+# 镜像编译不需要文档和本机运维脚本
+README.md
+CHANGELOG.md
+AGENTS.md
+docs
+scripts

@@ -1,12 +1,43 @@
+# 本地环境与私密配置；保留可提交的配置模板
 .env
-*.exe
-*.test
-coverage.out
-coverage.html
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+
+# Go 构建产物、测试输出与本地工作区
 /bin/
 /tmp/
+/dist/
+/tgguard
+*.exe
+*.test
+*.prof
+coverage.out
+coverage.html
+coverage-*.out
+/coverage/
+/go.work
+/go.work.sum
+
+# 运行日志、进程文件与本地数据备份
 *.log
+*.pid
+/backups/
+/dumps/
+/data/
+
+# 编辑器、系统文件与临时副本
 .idea/
 .vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+*.bak
 
-.codex-remote-attachments/
+# 本地会话附件
+/.codex-remote-attachments/
