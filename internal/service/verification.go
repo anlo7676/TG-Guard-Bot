@@ -103,7 +103,7 @@ func (s *Service) Join(ctx context.Context, chat domain.Chat, u domain.User) err
 	}
 	if v.PromptID == 0 {
 		markup := map[string]any{"inline_keyboard": [][]map[string]string{{{"text": i18n.Text(settings.Language, "verify_button"), "url": "https://t.me/" + s.Bot.Username + "?start=verify_" + v.Token}}}}
-		id, e := s.Bot.Send(ctx, chat.ID, welcomeText(settings, chat, u, true), markup, 0)
+		id, e := s.sendWelcome(ctx, chat, u, settings, true, markup)
 		if e != nil {
 			return e
 		}

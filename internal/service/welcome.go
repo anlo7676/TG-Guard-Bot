@@ -4,38 +4,84 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
-	"tgguard/internal/domain"
 	"time"
+	"unicode/utf16"
+
+	"tgguard/internal/domain"
 )
 
+var welcomeVariable = regexp.MustCompile(`\{(?:name|username|user_id|group|timeout)\}`)
+
 func welcomeText(v domain.Settings, chat domain.Chat, u domain.User, verify bool) string {
+	text, _ := welcomeMessage(v, chat, u, verify)
+	return text
+}
+
+// Entity offsets use Telegram's UTF-16 units, including emoji in names/templates.
+func welcomeMessage(v domain.Settings, chat domain.Chat, u domain.User, verify bool) (string, []domain.Entity) {
+	if !verify && !v.WelcomeEnabled {
+		return "", nil
+	}
+	name := strings.TrimSpace(u.FirstName + " " + u.LastName)
+	if name == "" {
+		name = fmt.Sprint(u.ID)
+	}
+	username := name
+	if u.Username != "" {
+		username = "@" + u.Username
+	}
+	template := strings.TrimSpace(v.WelcomeText)
 	if verify {
-		name := u.FirstName
-		if name == "" {
-			name = fmt.Sprint(u.ID)
-		}
-		return fmt.Sprintf("%s，请在 %d 秒内点击下方验证按钮，进入私聊完成验证。验证期间暂时不能发言。", name, v.VerificationTimeout)
+		template = "{username}，请在 {timeout} 秒内点击下方验证按钮，进入私聊完成验证。验证期间暂时不能发言。"
 	}
-	text := ""
-	if v.WelcomeEnabled {
-		name := u.FirstName
-		if name == "" {
-			name = fmt.Sprint(u.ID)
+	if !strings.Contains(template, "{name}") && !strings.Contains(template, "{username}") && !strings.Contains(template, "{user_id}") {
+		template = "{username}，" + template
+	}
+	values := map[string]string{"{name}": name, "{username}": username, "{user_id}": fmt.Sprint(u.ID), "{group}": chat.Title, "{timeout}": fmt.Sprint(v.VerificationTimeout)}
+	var out strings.Builder
+	entities := []domain.Entity{}
+	offset := 0
+	exhausted := false
+	appendText := func(text string, mention bool) {
+		if exhausted {
+			return
 		}
-		username := u.Username
-		if username != "" {
-			username = "@" + username
-		} else {
-			username = name
+		start := offset
+		for _, r := range text {
+			n := utf16.RuneLen(r)
+			if offset+n > 3000 {
+				exhausted = true
+				break
+			}
+			out.WriteRune(r)
+			offset += n
 		}
-		text = strings.NewReplacer("{name}", name, "{username}", username, "{user_id}", fmt.Sprint(u.ID), "{group}", chat.Title, "{timeout}", fmt.Sprint(v.VerificationTimeout)).Replace(v.WelcomeText)
-		r := []rune(text)
-		if len(r) > 3000 {
-			text = string(r[:3000])
+		if mention && offset > start {
+			entities = append(entities, domain.Entity{Type: "text_link", Offset: start, Length: offset - start, URL: fmt.Sprintf("tg://user?id=%d", u.ID)})
 		}
 	}
-	return strings.TrimSpace(text)
+	pos := 0
+	for _, span := range welcomeVariable.FindAllStringIndex(template, -1) {
+		appendText(template[pos:span[0]], false)
+		key := template[span[0]:span[1]]
+		appendText(values[key], key == "{name}" || key == "{username}" || key == "{user_id}")
+		pos = span[1]
+	}
+	appendText(template[pos:], false)
+	return out.String(), entities
+}
+
+func (s *Service) sendWelcome(ctx context.Context, chat domain.Chat, u domain.User, v domain.Settings, verify bool, markup any) (int64, error) {
+	text, entities := welcomeMessage(v, chat, u, verify)
+	in := map[string]any{"chat_id": chat.ID, "text": text, "entities": entities}
+	if markup != nil {
+		in["reply_markup"] = markup
+	}
+	var sent domain.Message
+	e := s.Bot.Call(ctx, "sendMessage", in, &sent)
+	return sent.ID, e
 }
 func (s *Service) welcomeOnly(ctx context.Context, chat domain.Chat, u domain.User, v domain.Settings) error {
 	if !v.WelcomeEnabled {
@@ -61,7 +107,7 @@ func (s *Service) welcomeLocked(ctx context.Context, chat domain.Chat, u domain.
 	if ok, e := s.Store.GroupAuthorized(ctx, chat.ID); e != nil || !ok {
 		return e
 	}
-	message, e := s.Bot.Send(ctx, chat.ID, welcomeText(v, chat, u, false), nil, 0)
+	message, e := s.sendWelcome(ctx, chat, u, v, false, nil)
 	if e != nil {
 		return e
 	}
