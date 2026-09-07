@@ -39,13 +39,14 @@ func (p *Compatible) Review(ctx context.Context, n domain.Normalized, r domain.R
 	ctx, cancel := context.WithTimeout(ctx, p.Timeout)
 	defer cancel()
 	input := struct {
-		Text     string      `json:"text"`
-		URLs     []string    `json:"urls"`
-		Mentions []string    `json:"mentions"`
-		IsNew    bool        `json:"is_new"`
-		First    bool        `json:"first_message"`
-		Risk     domain.Risk `json:"risk"`
-	}{n.Text, n.URLs, n.Mentions, n.IsNew, n.FirstMessage, r}
+		Text     string              `json:"text"`
+		URLs     []string            `json:"urls"`
+		Mentions []string            `json:"mentions"`
+		IsNew    bool                `json:"is_new"`
+		First    bool                `json:"first_message"`
+		Risk     domain.Risk         `json:"risk"`
+		Contexts []domain.Normalized `json:"contexts,omitempty"`
+	}{n.Text, n.URLs, n.Mentions, n.IsNew, n.FirstMessage, r, n.Contexts}
 	text := store.JSON(input)
 	cacheKey := "ai:moderation:" + state.Hash(fmt.Sprintf("v1:%s:%s:%d:%s", p.BaseURL, p.Model, n.ChatID, text))
 	start := time.Now()

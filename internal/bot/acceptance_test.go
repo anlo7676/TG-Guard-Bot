@@ -1239,6 +1239,33 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			t.Fatal("numeric timed mute failed")
 		}
 	})
+
+	t.Run("all stale automatic punishments respect newer manual resolution", func(t *testing.T) {
+		for i, action := range []string{"mute", "ban", "warn"} {
+			uid := int64(77889901 + i)
+			l := store.Log{EventKey: fmt.Sprintf("ordinary-retry-%d", i), ChatID: other.ID, UserID: uid, Decision: domain.Decision{Action: action, Duration: 3600, Reason: "advertising"}, Source: "automatic"}
+			mu.Lock()
+			failAdminLookupOnce = true
+			mu.Unlock()
+			if e := svc.Punish(ctx, l, 0); e == nil {
+				t.Fatal("expected injected failure")
+			}
+			if e := svc.Command(ctx, int64(919190+i), domain.Message{Chat: other, From: &domain.User{ID: 42}}, "unmute", fmt.Sprint(uid)); e != nil {
+				t.Fatal(e)
+			}
+			before := count("restrictChatMember") + count("banChatMember") + count("sendMessage")
+			if e := svc.Punish(ctx, l, 0); e != nil {
+				t.Fatal(e)
+			}
+			if count("restrictChatMember")+count("banChatMember")+count("sendMessage") != before {
+				t.Fatal("stale automatic action overrides manual resolution", action)
+			}
+			p, e := db.PreparePunishment(ctx, l, 0)
+			if e != nil || p.Status != "skipped" {
+				t.Fatal("superseded action not recorded", p, e)
+			}
+		}
+	})
 	t.Run("expired menu and revoked permission", func(t *testing.T) {
 		m := domain.Message{Chat: domain.Chat{ID: 42, Type: "private"}, From: &domain.User{ID: 42}}
 		if err := svc.GroupMenu(ctx, m, "gm:-1001:home"); err != nil {

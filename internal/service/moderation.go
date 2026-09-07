@@ -123,15 +123,7 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 	if p.Status == "done" || p.Status == "skipped" {
 		return nil
 	}
-	if p.Decision.Reason == "local_ad_review" {
-		resolved, e := s.Store.NewerManualResolution(ctx, l.ChatID, l.UserID, p.CreatedAt)
-		if e != nil {
-			return e
-		}
-		if resolved {
-			return s.Store.PunishmentStep(ctx, l.EventKey, "skipped")
-		}
-	}
+
 	defer func() {
 		if err != nil {
 			if e := s.Store.PunishmentError(ctx, l.EventKey, err); e != nil {
@@ -149,6 +141,15 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 	}
 	if protected && p.Decision.Action != "unmute" && p.Decision.Action != "unban" {
 		return s.Store.PunishmentStep(ctx, l.EventKey, "skipped")
+	}
+	if l.Source == "automatic" {
+		resolved, e := s.Store.NewerManualResolution(ctx, l.ChatID, l.UserID, p.CreatedAt)
+		if e != nil {
+			return e
+		}
+		if resolved {
+			return s.Store.PunishmentStep(ctx, l.EventKey, "skipped")
+		}
 	}
 	d := p.Decision
 	if d.Delete && !p.Deleted && l.MessageID > 0 {

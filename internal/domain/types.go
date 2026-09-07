@@ -188,18 +188,20 @@ func one(s string, opts ...string) bool {
 }
 
 type Normalized struct {
-	HasWallet      bool     `json:"has_wallet"`
-	ChatID         int64    `json:"chat_id"`
-	MessageID      int64    `json:"message_id"`
-	UserID         int64    `json:"user_id"`
-	Username       string   `json:"username"`
-	Text           string   `json:"text"`
-	URLs           []string `json:"urls"`
-	Mentions       []string `json:"mentions"`
-	MediaType      string   `json:"media_type"`
-	IsNew          bool     `json:"is_new"`
-	FirstMessage   bool     `json:"first_message"`
-	UppercaseRatio float64  `json:"uppercase_ratio"`
+	Contexts       []Normalized `json:"contexts,omitempty"`
+	ContextSource  string       `json:"context_source,omitempty"`
+	HasWallet      bool         `json:"has_wallet"`
+	ChatID         int64        `json:"chat_id"`
+	MessageID      int64        `json:"message_id"`
+	UserID         int64        `json:"user_id"`
+	Username       string       `json:"username"`
+	Text           string       `json:"text"`
+	URLs           []string     `json:"urls"`
+	Mentions       []string     `json:"mentions"`
+	MediaType      string       `json:"media_type"`
+	IsNew          bool         `json:"is_new"`
+	FirstMessage   bool         `json:"first_message"`
+	UppercaseRatio float64      `json:"uppercase_ratio"`
 }
 type Match struct {
 	Rule   string `json:"rule"`

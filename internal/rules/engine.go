@@ -30,9 +30,9 @@ func Clean(s string) string {
 }
 
 func Normalize(m domain.Message) domain.Normalized {
-	n := domain.Normalized{ChatID: m.Chat.ID, MessageID: m.ID, Text: Clean(m.ModerationText()), URLs: []string{}, Mentions: []string{}}
+	n := domain.Normalized{ChatID: m.Chat.ID, MessageID: m.ID, Text: Clean(m.Body()), URLs: []string{}, Mentions: []string{}}
 	// Base58 wallet addresses are case-sensitive; detect before lowercasing text.
-	n.HasWallet = walletRE.MatchString(m.ModerationText())
+	n.HasWallet = walletRE.MatchString(m.Body())
 	if m.From != nil {
 		n.UserID = m.From.ID
 		n.Username = m.From.Username
@@ -78,6 +78,11 @@ func Normalize(m domain.Message) domain.Normalized {
 	default:
 		n.MediaType = "text"
 	}
+	for _, part := range m.ModerationParts()[1:] {
+		c := Normalize(domain.Message{Text: part.Text})
+		c.ContextSource = part.Source
+		n.Contexts = append(n.Contexts, c)
+	}
 	return n
 }
 func unique(a []string) []string {
@@ -100,7 +105,37 @@ func contains(s string, words ...string) bool {
 	return false
 }
 
+// Evaluate each field independently; combine evidence without manufacturing cross-field phrases.
 func Evaluate(n domain.Normalized, s domain.Settings) domain.Risk {
+	if len(n.Contexts) == 0 {
+		return evaluatePart(n, s)
+	}
+	parts := append([]domain.Normalized{n}, n.Contexts...)
+	out := domain.Risk{Matches: []domain.Match{}}
+	seen := map[string]bool{}
+	for i, p := range parts {
+		p.IsNew = n.IsNew
+		p.FirstMessage = n.FirstMessage
+		r := evaluatePart(p, s)
+		out.LocalAction = strongerAction(out.LocalAction, r.LocalAction)
+		for _, m := range r.Matches {
+			if seen[m.Rule] {
+				continue
+			}
+			seen[m.Rule] = true
+			if i > 0 {
+				m.Reason = "[" + p.ContextSource + "] " + m.Reason
+			}
+			out.Matches = append(out.Matches, m)
+			out.Score += m.Score
+		}
+	}
+	if out.LocalAction != "" || out.Score > 100 {
+		out.Score = 100
+	}
+	return out
+}
+func evaluatePart(n domain.Normalized, s domain.Settings) domain.Risk {
 	r := domain.Risk{Matches: []domain.Match{}}
 	add := func(name string, matched bool, score int, reason string) {
 		if o, ok := s.Rules[name]; ok {

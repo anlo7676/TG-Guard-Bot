@@ -485,6 +485,6 @@ func (s *Store) Rows(ctx context.Context, q string, args ...any) ([]map[string]a
 // Called under the member punishment lock. A later admin decision supersedes old review work.
 func (s *Store) NewerManualResolution(ctx context.Context, chat, user int64, after time.Time) (bool, error) {
 	var found bool
-	e := s.DB.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM punishments WHERE chat_id=? AND user_id=? AND source='manual' AND status='done' AND created_at>? AND JSON_UNQUOTE(JSON_EXTRACT(decision,'$.action')) IN ('ban','unmute','unban','kick'))", chat, user, after).Scan(&found)
+	e := s.DB.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM punishments WHERE chat_id=? AND user_id=? AND source='manual' AND status='done' AND created_at>? AND JSON_UNQUOTE(JSON_EXTRACT(decision,'$.action')) IN ('ban','mute','unmute','unban','kick'))", chat, user, after).Scan(&found)
 	return found, e
 }
