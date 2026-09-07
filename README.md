@@ -21,27 +21,45 @@
 | 管理 | Telegram 命令、Bearer Token 管理 API、仪表盘统计、群设置、用户查询、审核／处罚／验证／操作日志、误判反馈 |
 | 运维 | MySQL 去重收件箱、不同群并行处理、失败重试与死信、JSON 日志、健康检查、优雅停机、单实例锁 |
 
-## 快速启动
+## 一键部署（推荐）
 
-1. 使用 BotFather 创建机器人，取得 Bot Token；执行 `/setprivacy` 将 Privacy Mode 设为 Disable。
-2. 将机器人加入 **超级群** 并提升为管理员，授予删除消息和限制／封禁成员权限。
-3. 复制 `.env.example` 为 `.env`，填写 `BOT_TOKEN`、`ADMIN_API_TOKEN`、数据库及 Redis 密码。`ADMIN_API_TOKEN` 至少 32 个随机字符。不要将 `.env` 提交到版本库。
-4. 启动服务。
+只需安装 Docker（Windows 使用 Docker Desktop），无需单独安装 Go、MySQL 或 Redis。Linux 还需要系统常见工具 `bash`、`openssl`、`curl`；Windows 使用 PowerShell 7。
 
-### Docker Compose
+下载项目后，在项目目录执行：
 
-需要安装 Docker Engine／Docker Desktop 和 Compose v2。
+**Linux / macOS：**
 
-```powershell
-Copy-Item .env.example .env
-# 编辑 .env 后执行
-docker compose up -d --build
-docker compose logs -f app
+```sh
+git clone https://github.com/anlo7676/TG-Guard-Bot.git
+cd TG-Guard-Bot
+bash scripts/deploy.sh
 ```
 
-Compose 固定 `golang:1.26.2-alpine`、`mysql:8.4`、`redis:8.6.2-alpine`。MySQL 8.4 使用该 LTS 系列的镜像更新。MySQL、Redis 不向宿主机暴露端口，HTTP 仅绑定宿主机 `127.0.0.1:8080`。
+**Windows：**
 
-数据库迁移在应用启动时自动执行，迁移版本保存在 `schema_migrations`。所有连接使用 UTC 和 `utf8mb4`；Redis 启用 AOF。
+```powershell
+git clone https://github.com/anlo7676/TG-Guard-Bot.git
+cd TG-Guard-Bot
+pwsh -File scripts/deploy.ps1
+```
+
+也可直接从仓库下载 ZIP 并解压，无需配置 Git SSH。
+
+首次只按提示输入 **Bot Token**。脚本生成数据库密码、后台凭据和独立加密密钥，保存到 `.env`，然后构建并启动全部服务，等待健康检查通过。Windows 自动打开后台；Linux 输出有效期 1 分钟的一次性登录地址。首次拉取镜像和构建需要几分钟，并需要网络可访问镜像仓库和 Telegram。
+
+进入后台后：
+
+1. 在「机器人管理员」设置自己的 Telegram 数字 ID（私聊机器人 `/id` 获取）。AI 接口可稍后按需填写，本地规则无需 AI。
+2. 将机器人加入超级群并设为管理员，授予删除消息和限制成员权限；在 BotFather 关闭 Privacy Mode。
+3. 在网页群组列表批准该群，即可开始使用。
+
+后台只监听本机 `127.0.0.1:8080`。部署到远程服务器时，在自己电脑另开终端运行 `ssh -L 8080:127.0.0.1:8080 用户@服务器`，再打开脚本给出的登录地址。票据失效后可重新执行部署脚本获取，或使用 `.env` 中的 `ADMIN_API_TOKEN` 登录。
+
+**更新：** `git pull --ff-only` 后再次执行同一部署命令。已有 `.env` 不覆盖、密码不重置、数据卷保留。请备份 `.env` 和数据库；原先手工部署的配置不完整时，脚本会提示缺失字段，不擅自改写。已有本机 Go 进程时，继续使用下面的本机更新方式；不要用同一个 Token 同时启动两个机器人实例。
+
+**查看日志：** `docker compose logs --tail 100 app`。**停止：** `docker compose stop`。启动失败可修正配置后重试。
+
+Compose 使用 Go 1.26.2、MySQL 8.4、Redis 8.6.2，数据库迁移自动执行。MySQL 和 Redis 不向宿主机暴露端口，数据保存在 Docker 命名卷中。
 
 ### 本机运行与更新
 
@@ -114,7 +132,7 @@ Go 可执行程序本身只读环境变量；自动读取 `.env` 的入口是 Po
 
 - 验证启用：数学题，180 秒，失败踢出；踢出会执行 ban 后 unban，允许重新加入。
 - 管理员／机器人／白名单／可信用户跳过验证；管理员始终免自动处罚。`admin_bypass=false` 可记录管理员风险，仍不会自动处罚管理员。
-- 25 类常见广告预设默认命中即删除，不调用 AI；直接动作优先于以下累计评分策略。
+- 32 类常见广告预设默认删除并警告，累计第 4 次起持续禁言，交由管理员决定封禁或解禁；不调用 AI，直接动作优先于以下累计评分策略。
 - 无直接动作时，本地风险小于 50 直接放行；50–79 在该群启用 AI 时复核；80–100 由程序直接处理。
 - AI 置信度 `<0.60` 放行，`0.60–0.79` 警告，`>=0.80` 根据群开关删除和警告；`>=0.95` 且严重违规可禁言。AI 返回的建议不能直接绕过策略执行 Ban。
 - 累计评分策略默认首犯删除＋警告，第二次及以后删除＋禁言 1 小时。自动封禁默认关闭；启用后按 `ban_after` 累计次数执行。
