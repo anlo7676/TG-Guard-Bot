@@ -45,6 +45,8 @@ type Message struct {
 	Video           json.RawMessage `json:"video"`
 	Document        json.RawMessage `json:"document"`
 	Sticker         json.RawMessage `json:"sticker"`
+	Quote           *TextQuote      `json:"quote"`
+	ExternalReply   *ExternalReply  `json:"external_reply"`
 	Forward         json.RawMessage `json:"forward_origin"`
 }
 

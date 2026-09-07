@@ -472,6 +472,8 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		for _, sample := range []struct{ body, want string }{
 			{`{"text":"足球红单推荐交流群.加入免费领红包 @losusnh9071bot"}`, `"action":"warn"`},
 			{`{"text":"你好哈喽"}`, `"action":"allow"`},
+			{`{"text":"搞 米","forward_source":"需要群发 联系@SHxxbb"}`, `"action":"warn"`},
+			{`{"text":"搞 米","quote":"有收款码的来做，打钱爽快"}`, `"action":"warn"`},
 		} {
 			w := request("POST", "/api/v1/groups/-1001/rules/test", sample.body)
 			if w.Code != 200 || !strings.Contains(w.Body.String(), sample.want) {
@@ -1163,6 +1165,18 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		}
 		if count("sendMessage") != sends || count("restrictChatMember") != mutes+1 {
 			t.Fatal("retry duplicated review action")
+		}
+	})
+
+	t.Run("forward source evidence survives stored moderation", func(t *testing.T) {
+		const event int64 = 891234
+		m := domain.Message{ID: 891234, Chat: other, From: &domain.User{ID: 891234}, Text: "搞 米", Forward: json.RawMessage(`{"type":"hidden_user","sender_user_name":"需要群发 联系@SHxxbb"}`)}
+		if e := svc.Moderate(ctx, event, m); e != nil {
+			t.Fatal(e)
+		}
+		l, e := db.GetLog(ctx, "auto:891234")
+		if e != nil || l.Decision.Action != "warn" || !l.Decision.Delete || !strings.Contains(l.Text, "[转发来源] 需要群发 联系@SHxxbb") {
+			t.Fatal("forward evidence/action missing", l, e)
 		}
 	})
 	t.Run("expired menu and revoked permission", func(t *testing.T) {

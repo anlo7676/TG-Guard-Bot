@@ -30,9 +30,9 @@ func Clean(s string) string {
 }
 
 func Normalize(m domain.Message) domain.Normalized {
-	n := domain.Normalized{ChatID: m.Chat.ID, MessageID: m.ID, Text: Clean(m.Body()), URLs: []string{}, Mentions: []string{}}
+	n := domain.Normalized{ChatID: m.Chat.ID, MessageID: m.ID, Text: Clean(m.ModerationText()), URLs: []string{}, Mentions: []string{}}
 	// Base58 wallet addresses are case-sensitive; detect before lowercasing text.
-	n.HasWallet = walletRE.MatchString(m.Body())
+	n.HasWallet = walletRE.MatchString(m.ModerationText())
 	if m.From != nil {
 		n.UserID = m.From.ID
 		n.Username = m.From.Username

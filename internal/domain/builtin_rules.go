@@ -11,6 +11,8 @@ type BuiltinRule struct {
 }
 
 var BuiltinRules = []BuiltinRule{
+	{Key: "ad_collection_jobs", Label: "收款码接单招揽", Pattern: "(?:收款码|收钱码|收款账户).{0,32}(?:来做|来接|接单|招人|日结|佣金|打钱爽快)|(?:[0-9一二三四五六七八九十]+分钟一单|担保公群).{0,40}(?:收款码|打钱爽快)", Example: "赌博料子没风险6分钟一单 有收款码的来做 好上手 有担保公群打钱爽快", Score: 60, Action: "delete"},
+	{Key: "ad_launder_income", Label: "洗钱高收入诱导", Pattern: "(?:洗钱|跑分).{0,12}(?:一天|日入|日赚).{0,6}[0-9一二三四五六七八九十]+(?:千|万|百).{0,16}(?:担保|联系|来做|进群|包赚)", Example: "洗钱一天3千有担保群", Score: 60, Action: "delete"},
 	{Key: "ad_sports_tips", Label: "足球红单引流", Score: 60, Action: "delete", Pattern: "(?:足球|篮球|体育).{0,16}(?:红单|推单|推荐单).{0,40}(?:交流群|领红包|加入|入群|@[a-z0-9_]{5,32})", Example: "足球红单推荐交流群.加入免费领红包 @losusnh9071bot"},
 	{Key: "ad_bonus_bot", Label: "红包机器人引流", Score: 60, Action: "delete", Pattern: "(?:加入|进群|入群|领取|免费领).{0,16}(?:红包|福利|彩金).{0,32}@[a-z0-9_]{2,29}bot", Example: "加入免费领红包 @bonus9071bot"},
 	{Key: "ad_luxury_jobs", Label: "豪车高薪招工", Score: 60, Action: "delete", Pattern: "(?:来帮我干活|跟我干|跟着我干|招人|招聘|不想上班).{0,64}(?:一个月|一月|月入|月赚).{0,12}(?:包提|喜提|提车|提奥迪|提宝马|提奔驰|[0-9一二三四五六七八九十]+万)", Example: "不想上班的来，来帮我干活，一个月包提奥迪A7"},

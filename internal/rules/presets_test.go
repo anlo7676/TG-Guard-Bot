@@ -38,8 +38,8 @@ func TestEveryDefaultAdPresetDetectsItsCategory(t *testing.T) {
 			}
 		})
 	}
-	if count != 30 {
-		t.Fatalf("expected 30 explicit ad categories, got %d", count)
+	if count != 32 {
+		t.Fatalf("expected 32 explicit ad categories, got %d", count)
 	}
 }
 func TestDefaultPresetsKeepNormalTopicsOutOfDirectPunishment(t *testing.T) {

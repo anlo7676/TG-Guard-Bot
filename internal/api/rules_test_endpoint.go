@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"tgguard/internal/domain"
@@ -14,13 +15,15 @@ func (s *Server) testRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var b struct {
-		Text      string `json:"text"`
-		NewMember bool   `json:"new_member"`
+		ForwardSource string `json:"forward_source"`
+		Quote         string `json:"quote"`
+		Text          string `json:"text"`
+		NewMember     bool   `json:"new_member"`
 	}
 	if !decode(w, r, &b, 16384, true) {
 		return
 	}
-	if strings.TrimSpace(b.Text) == "" || len(b.Text) > 8000 {
+	if strings.TrimSpace(b.Text) == "" || len(b.Text)+len(b.ForwardSource)+len(b.Quote) > 8000 {
 		respond(w, 400, map[string]string{"error": "请输入测试文字，最多 8000 字节"})
 		return
 	}
@@ -29,7 +32,17 @@ func (s *Server) testRules(w http.ResponseWriter, r *http.Request) {
 		apiError(w, e)
 		return
 	}
-	n := rules.Normalize(domain.Message{Text: b.Text})
+	m := domain.Message{Text: b.Text}
+	if b.ForwardSource != "" {
+		m.Forward, _ = json.Marshal(domain.MessageOrigin{Type: "hidden_user", HiddenName: b.ForwardSource})
+	}
+	if b.Quote != "" {
+		m.Quote = &domain.TextQuote{Text: b.Quote}
+		if b.ForwardSource == "" {
+			m.ExternalReply = &domain.ExternalReply{}
+		}
+	}
+	n := rules.Normalize(m)
 	n.IsNew = b.NewMember
 	n.FirstMessage = b.NewMember
 	risk := rules.Evaluate(n, v)

@@ -53,7 +53,7 @@ func (s *Service) Moderate(ctx context.Context, update int64, m domain.Message) 
 	if e != nil {
 		return e
 	}
-	l := store.Log{EventKey: key, ChatID: n.ChatID, UserID: n.UserID, MessageID: n.MessageID, Text: m.Text + m.Caption, Risk: domain.Risk{Matches: []domain.Match{}}, Decision: domain.Decision{Action: "allow", Reason: "moderation_disabled"}, Source: "automatic"}
+	l := store.Log{EventKey: key, ChatID: n.ChatID, UserID: n.UserID, MessageID: n.MessageID, Text: m.ModerationText(), Risk: domain.Risk{Matches: []domain.Match{}}, Decision: domain.Decision{Action: "allow", Reason: "moderation_disabled"}, Source: "automatic"}
 	if settings.ModerationEnabled && !(protected && (settings.AdminBypass || kind == "white" || kind == "trusted")) {
 		l.Risk = rules.Evaluate(n, settings)
 		if settings.SpamEnabled {
