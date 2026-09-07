@@ -1,11 +1,13 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"tgguard/internal/config"
@@ -116,5 +118,42 @@ func TestSessionLogoutRevokesAccess(t *testing.T) {
 	h.ServeHTTP(w, r)
 	if w.Code != 401 {
 		t.Fatal("session survived logout")
+	}
+}
+
+func TestTicketSurvivesRedisFailureAndSessionCreatedAtomically(t *testing.T) {
+	redis := miniredis.RunT(t)
+	cache := state.New(redis.Addr(), "")
+	defer cache.R.Close()
+	server := &Server{Service: &service.Service{State: cache}, Config: config.Config{AdminToken: strings.Repeat("k", 32)}}
+	h := server.Handler()
+	ticket := strings.Repeat("t", 32)
+	if e := cache.R.Set(context.Background(), "web:ticket:"+state.Hash(ticket), "1", time.Minute).Err(); e != nil {
+		t.Fatal(e)
+	}
+	exchange := func() *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/auth/ticket", strings.NewReader(`{"ticket":"`+ticket+`"}`))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	redis.SetError("temporary outage")
+	if w := exchange(); w.Code != 503 {
+		t.Fatal(w.Code)
+	}
+	redis.SetError("")
+	if !redis.Exists("web:ticket:" + state.Hash(ticket)) {
+		t.Fatal("ticket consumed during failure")
+	}
+	w := exchange()
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	cookies := w.Result().Cookies()
+	if len(cookies) != 1 || !redis.Exists("web:session:"+state.Hash(cookies[0].Value)) || redis.Exists("web:ticket:"+state.Hash(ticket)) {
+		t.Fatal("session and ticket inconsistent")
+	}
+	if w = exchange(); w.Code != 401 {
+		t.Fatal("ticket reused", w.Code)
 	}
 }

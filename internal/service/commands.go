@@ -195,8 +195,15 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 			message = m.Reply.ID
 		}
 		duration := settings.MuteSeconds
-		if command == "unban" && target == 0 {
-			target, _ = strconv.ParseInt(arg, 10, 64)
+		if target == 0 {
+			fields := strings.Fields(arg)
+			if len(fields) > 0 {
+				target, _ = strconv.ParseInt(fields[0], 10, 64)
+				arg = strings.Join(fields[1:], " ")
+			}
+			if command != "mute" && arg != "" {
+				return s.text(ctx, m.Chat.ID, "格式：/"+command+" 用户ID；或回复目标用户的消息。")
+			}
 		}
 		if target <= 0 {
 			return s.Say(ctx, m.Chat.ID, lang, "reply_required")

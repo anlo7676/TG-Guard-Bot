@@ -123,6 +123,15 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 	if p.Status == "done" || p.Status == "skipped" {
 		return nil
 	}
+	if p.Decision.Reason == "local_ad_review" {
+		resolved, e := s.Store.NewerManualResolution(ctx, l.ChatID, l.UserID, p.CreatedAt)
+		if e != nil {
+			return e
+		}
+		if resolved {
+			return s.Store.PunishmentStep(ctx, l.EventKey, "skipped")
+		}
+	}
 	defer func() {
 		if err != nil {
 			if e := s.Store.PunishmentError(ctx, l.EventKey, err); e != nil {
@@ -175,9 +184,6 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 		case "mute":
 			if d.Reason == "local_ad_review" {
 				e = s.Bot.Restrict(ctx, l.ChatID, l.UserID, 0)
-				if e == nil {
-					e = s.Bot.Call(ctx, "sendMessage", map[string]any{"chat_id": l.ChatID, "parse_mode": "HTML", "text": fmt.Sprintf("<a href=\"tg://user?id=%d\">用户 %d</a> 累计违规超过 3 次，原消息已删除，已禁言并记录，等待管理员处理。\n管理员可使用 /ban %d 封禁，或 /unmute %d 解除禁言。", l.UserID, l.UserID, l.UserID, l.UserID)}, nil)
-				}
 				break
 			}
 			seconds := int(time.Until(p.CreatedAt.Add(time.Duration(d.Duration) * time.Second)).Seconds())
@@ -200,6 +206,19 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 		}
 		if e = s.Store.PunishmentStep(ctx, l.EventKey, "acted"); e != nil {
 			return e
+		}
+	}
+	if d.Reason == "local_ad_review" {
+		resolved, e := s.Store.NewerManualResolution(ctx, l.ChatID, l.UserID, p.CreatedAt)
+		if e != nil {
+			return e
+		}
+		if !resolved {
+			e = s.Bot.Call(ctx, "sendMessage", map[string]any{"chat_id": l.ChatID, "parse_mode": "HTML", "text": fmt.Sprintf("<a href=\"tg://user?id=%d\">用户 %d</a> 累计违规超过 3 次，原消息已删除，已禁言并记录，等待管理员处理。\n管理员可使用 /ban %d 封禁，或 /unmute %d 解除禁言。", l.UserID, l.UserID, l.UserID, l.UserID)}, nil)
+
+			if e != nil {
+				return e
+			}
 		}
 	}
 	if e = s.Store.PunishmentStep(ctx, l.EventKey, "done"); e != nil {

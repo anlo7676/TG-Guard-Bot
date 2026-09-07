@@ -66,6 +66,7 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		Body   map[string]any
 	}{}
 	mid := int64(500)
+	failReviewNoticeOnce := false
 	failAdminLookupOnce := false
 	failNextWelcome := false
 	failVerificationNotice := ""
@@ -83,6 +84,11 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		if (failVerificationNotice == "delete" && method == "deleteMessage") || (failVerificationNotice == "private" && method == "sendMessage" && strings.HasPrefix(fmt.Sprint(in["text"]), "验证成功")) {
 			failVerificationNotice = ""
 			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": 500, "description": "temporary verification notice failure"})
+			return
+		}
+		if failReviewNoticeOnce && method == "sendMessage" && strings.Contains(fmt.Sprint(in["text"]), "累计违规超过 3 次") {
+			failReviewNoticeOnce = false
+			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": 500, "description": "temporary notice failure"})
 			return
 		}
 		var result any = true
@@ -1177,6 +1183,60 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		l, e := db.GetLog(ctx, "auto:891234")
 		if e != nil || l.Decision.Action != "warn" || !l.Decision.Delete || !strings.Contains(l.Text, "[转发来源] 需要群发 联系@SHxxbb") {
 			t.Fatal("forward evidence/action missing", l, e)
+		}
+	})
+
+	t.Run("admin numeric commands supersede failed review notification", func(t *testing.T) {
+		const uid int64 = 998800
+		l := store.Log{EventKey: "review-notice-retry", ChatID: other.ID, UserID: uid, MessageID: 88001, Decision: domain.Decision{Action: "mute", Delete: true, Reason: "local_ad_review"}, Source: "automatic"}
+		mu.Lock()
+		failReviewNoticeOnce = true
+		mu.Unlock()
+		if e := svc.Punish(ctx, l, 0); e == nil {
+			t.Fatal("expected notice failure")
+		}
+		p, e := db.PreparePunishment(ctx, l, 0)
+		if e != nil || !p.Acted || p.Status == "done" {
+			t.Fatal("restriction not persisted separately", p, e)
+		}
+		before := count("restrictChatMember")
+		denied := domain.Message{Chat: other, From: &domain.User{ID: 77}}
+		if e = svc.Command(ctx, 991000, denied, "unmute", fmt.Sprint(uid)); e != nil {
+			t.Fatal(e)
+		}
+		if count("restrictChatMember") != before {
+			t.Fatal("member could unmute")
+		}
+		adminMessage := domain.Message{Chat: other, From: &domain.User{ID: 42}}
+		if e = svc.Command(ctx, 991001, adminMessage, "unmute", fmt.Sprint(uid)); e != nil {
+			t.Fatal(e)
+		}
+		if count("restrictChatMember") != before+1 {
+			t.Fatal("numeric unmute failed")
+		}
+		sends := count("sendMessage")
+		if e = svc.Punish(ctx, l, 0); e != nil {
+			t.Fatal(e)
+		}
+		if count("restrictChatMember") != before+1 || count("sendMessage") != sends {
+			t.Fatal("retry overrode admin resolution")
+		}
+		p, e = db.PreparePunishment(ctx, l, 0)
+		if e != nil || p.Status != "skipped" {
+			t.Fatal("superseded review not recorded", p, e)
+		}
+		bans := count("banChatMember")
+		if e = svc.Command(ctx, 991002, adminMessage, "ban", fmt.Sprint(uid)); e != nil {
+			t.Fatal(e)
+		}
+		if count("banChatMember") != bans+1 {
+			t.Fatal("numeric ban failed")
+		}
+		if e = svc.Command(ctx, 991003, adminMessage, "mute", fmt.Sprint(uid)+" 2h"); e != nil {
+			t.Fatal(e)
+		}
+		if count("restrictChatMember") != before+2 {
+			t.Fatal("numeric timed mute failed")
 		}
 	})
 	t.Run("expired menu and revoked permission", func(t *testing.T) {

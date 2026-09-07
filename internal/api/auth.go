@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/url"
@@ -80,6 +81,9 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		apiError(w, e)
 		return
 	}
+	s.finishSession(w, r, id, csrf)
+}
+func (s *Server) finishSession(w http.ResponseWriter, r *http.Request, id, csrf string) {
 	secure := r.TLS != nil
 	if s.Service.Runtime != nil {
 		p, _ := url.Parse(s.Service.Runtime.Snapshot().PanelURL)
@@ -130,12 +134,32 @@ func (s *Server) exchangeTicket(w http.ResponseWriter, r *http.Request) {
 		respond(w, 401, map[string]string{"error": "登录链接无效"})
 		return
 	}
-	v, e := s.Service.State.R.GetDel(r.Context(), "web:ticket:"+state.Hash(b.Ticket)).Result()
-	if e != nil || v != "1" {
+
+	id, e := state.Token()
+	if e != nil {
+		apiError(w, e)
+		return
+	}
+	csrf, e := state.Token()
+	if e != nil {
+		apiError(w, e)
+		return
+	}
+	payload, _ := json.Marshal(webSession{CSRF: csrf})
+	// Create session before consuming the one-use ticket, in the same Redis operation.
+	ok, e := s.Service.State.R.Eval(r.Context(), `if redis.call('GET',KEYS[1])~='1' then return 0 end
+ redis.call('SET',KEYS[2],ARGV[1],'EX',28800)
+ redis.call('DEL',KEYS[1]);return 1`, []string{"web:ticket:" + state.Hash(b.Ticket), "web:session:" + state.Hash(id)}, string(payload)).Int()
+	if e != nil {
+		respond(w, 503, map[string]string{"error": "登录服务暂时不可用，请重试"})
+		return
+	}
+	if ok != 1 {
 		respond(w, 401, map[string]string{"error": "登录链接已使用或过期，请重新打开"})
 		return
 	}
-	s.createSession(w, r)
+	s.finishSession(w, r, id, csrf)
+
 }
 func (s *Server) sessionInfo(w http.ResponseWriter, r *http.Request) {
 	v, _, ok := s.session(r)
