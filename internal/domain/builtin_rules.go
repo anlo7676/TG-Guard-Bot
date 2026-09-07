@@ -11,6 +11,11 @@ type BuiltinRule struct {
 }
 
 var BuiltinRules = []BuiltinRule{
+	{Key: "ad_sports_tips", Label: "足球红单引流", Score: 60, Action: "delete", Pattern: "(?:足球|篮球|体育).{0,16}(?:红单|推单|推荐单).{0,40}(?:交流群|领红包|加入|入群|@[a-z0-9_]{5,32})", Example: "足球红单推荐交流群.加入免费领红包 @losusnh9071bot"},
+	{Key: "ad_bonus_bot", Label: "红包机器人引流", Score: 60, Action: "delete", Pattern: "(?:加入|进群|入群|领取|免费领).{0,16}(?:红包|福利|彩金).{0,32}@[a-z0-9_]{2,29}bot", Example: "加入免费领红包 @bonus9071bot"},
+	{Key: "ad_luxury_jobs", Label: "豪车高薪招工", Score: 60, Action: "delete", Pattern: "(?:来帮我干活|跟我干|跟着我干|招人|招聘|不想上班).{0,64}(?:一个月|一月|月入|月赚).{0,12}(?:包提|喜提|提车|提奥迪|提宝马|提奔驰|[0-9一二三四五六七八九十]+万)", Example: "不想上班的来，来帮我干活，一个月包提奥迪A7"},
+	{Key: "ad_paid_photos", Label: "拍招牌计件招揽", Score: 60, Action: "delete", Pattern: "(?:拍|收|采集).{0,8}(?:店铺|店面|门店).{0,8}(?:招牌|门头).{0,16}[0-9０-９]+\\s*(?:[0-9oＯ]|元|块|米|u|rmb)?\\s*(?:/|每|一)\\s*张", Example: "拍店铺招牌🛍️ 8o/张"},
+	{Key: "ad_black_u_jobs", Label: "黑U项目招揽", Score: 60, Action: "delete", Pattern: "(?:来和我|跟我|一起|招人|招募|带你).{0,20}(?:做|赚|搞|洗|跑).{0,6}(?:黑\\s*u|黑钱|黑币)|(?:黑\\s*u|黑钱|黑币).{0,36}(?:招人|招募|私聊|联系|日结|一天.{0,12}(?:万|达不溜))", Example: "来和我一起做黑U，交易所的来，一天五个达不溜轻轻松松"},
 	{Key: "url", Label: "外部 URL", Score: 20},
 	{Key: "telegram_link", Label: "Telegram 链接", Score: 40},
 	{Key: "contact", Label: "联系方式", Score: 25},

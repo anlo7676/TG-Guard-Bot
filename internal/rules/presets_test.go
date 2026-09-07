@@ -38,8 +38,8 @@ func TestEveryDefaultAdPresetDetectsItsCategory(t *testing.T) {
 			}
 		})
 	}
-	if count != 25 {
-		t.Fatalf("expected 25 explicit ad categories, got %d", count)
+	if count != 30 {
+		t.Fatalf("expected 30 explicit ad categories, got %d", count)
 	}
 }
 func TestDefaultPresetsKeepNormalTopicsOutOfDirectPunishment(t *testing.T) {
@@ -79,5 +79,19 @@ func TestPresetDetectsHiddenGroupLink(t *testing.T) {
 	r := Evaluate(domain.Normalized{Text: "加入福利群", URLs: []string{"https://t.me/freebonus"}}, domain.DefaultSettings())
 	if r.LocalAction != "delete" {
 		t.Fatal("hidden group link missed", r)
+	}
+}
+
+func TestScreenshotAdsAndNormalCounterexamples(t *testing.T) {
+	s := domain.DefaultSettings()
+	for _, text := range []string{"足球红单推荐交流群.加入免费领红包 @losusnh9071bot", "拍店铺招牌🛍️ 8 o/张", "不想上班的来，上个j8的班 来帮我干活，一个月包提奥迪A7 看我兼届", "有绿色项目不做？来和我一起做黑U，交易所的来 一天五个达不溜轻轻松松"} {
+		if d := Decide(Evaluate(Normalize(domain.Message{Text: text}), s), nil, s, 0, false); d.Action != "delete" {
+			t.Errorf("missed %q: %+v", text, d)
+		}
+	}
+	for _, text := range []string{"你好哈喽", "足球比赛今晚几点开始？", "这个足球交流群只讨论战术", "项目发红包庆祝上线", "拍店铺招牌留作纪念", "公司招聘 Go 工程师，月薪两万", "我攒了三年钱终于提奥迪A7", "黑U是什么意思？如何防范风险？", "警方提醒不要参与黑U项目", "跟我一起做 Go 开源项目"} {
+		if r := Evaluate(Normalize(domain.Message{Text: text}), s); r.LocalAction != "" {
+			t.Errorf("false positive %q: %+v", text, r)
+		}
 	}
 }

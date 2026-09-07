@@ -467,6 +467,26 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 				}
 			}
 		}
+
+		beforeCalls := count("sendMessage") + count("deleteMessage") + count("banChatMember")
+		for _, sample := range []struct{ body, want string }{
+			{`{"text":"足球红单推荐交流群.加入免费领红包 @losusnh9071bot"}`, `"action":"delete"`},
+			{`{"text":"你好哈喽"}`, `"action":"allow"`},
+		} {
+			w := request("POST", "/api/v1/groups/-1001/rules/test", sample.body)
+			if w.Code != 200 || !strings.Contains(w.Body.String(), sample.want) {
+				t.Fatal("rule simulation", w.Code, w.Body.String())
+			}
+		}
+		if w := request("POST", "/api/v1/groups/-1001/rules/test", `{"text":" "}`); w.Code != 400 {
+			t.Fatal("empty rule input accepted")
+		}
+		if w := request("POST", "/api/v1/groups/-99999/rules/test", `{"text":"test"}`); w.Code != 404 {
+			t.Fatal("orphan group accepted")
+		}
+		if count("sendMessage")+count("deleteMessage")+count("banChatMember") != beforeCalls {
+			t.Fatal("simulation sent Telegram actions")
+		}
 		if w := request("PUT", "/api/v1/groups/-1001/settings", `{"rate_limit":24}`); w.Code != 200 {
 			t.Fatal(w.Code, w.Body.String())
 		}

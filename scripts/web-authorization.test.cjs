@@ -57,3 +57,5 @@ test('inline confirmation cancellation and duplicate submission are safe',async(
  const submit=()=>h.get('#inline-action-form').onsubmit({preventDefault(){}});const first=submit();await submit();h.get('#inline-action-cancel').onclick();assert.equal(h.ctx.calls.length,1);assert.notEqual(h.get('#keyword-editor').innerHTML,'');h.ctx.release();await first;assert.equal(h.get('#keyword-editor').innerHTML,'');
 });
 test('web workflows never depend on native confirmation dialogs',()=>{const s=fs.readFileSync(path.join(__dirname,'../internal/api/web/app.js'),'utf8');assert.doesNotMatch(s,/\b(?:prompt|confirm)\s*\(/)});
+
+test('rule workspace exposes saved policy test and readable filters',()=>{const h=setup();const html=vm.runInContext("ruleLab({moderation_enabled:true,ai_enabled:true,ai_threshold:50,direct_threshold:80},[{pattern:'test'}])",h.ctx);for(const text of ['rule-lab-form','50–79','不会发送消息','足球红包引流','正常招聘','new_member'])assert.ok(html.includes(text),text)});
