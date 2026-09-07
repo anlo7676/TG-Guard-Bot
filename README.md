@@ -21,7 +21,19 @@
 | 管理 | Telegram 命令、Bearer Token 管理 API、仪表盘统计、群设置、用户查询、审核／处罚／验证／操作日志、误判反馈 |
 | 运维 | MySQL 去重收件箱、不同群并行处理、失败重试与死信、JSON 日志、健康检查、优雅停机、单实例锁 |
 
-## 一键部署（推荐）
+## 一行命令安装（Linux 服务器）
+
+在 Ubuntu / Debian 服务器执行，无需提前下载项目或安装 Docker（命令入口需要 `curl` 和 `sudo`；root 用户可省略 `sudo`）：
+
+```bash
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/anlo7676/TG-Guard-Bot/main/install.sh)"
+```
+
+脚本自动检查依赖，按需通过 [Docker 官方软件源](https://docs.docker.com/engine/install/ubuntu/#install-using-the-apt-repository) 安装 Docker 和 Compose，下载项目到 `/opt/tg-guard`，再提示输入 **Bot Token**。数据库、Redis、密码、加密密钥及后台登录入口自动配置。
+
+**更新也执行同一条命令。** 保留 `.env` 和 Docker 数据卷，仓库有本地修改或无法快进时停止更新。其他 Linux 发行版需先自行安装 Docker、Compose、git、curl、openssl。远程后台访问仍使用下文的 SSH 端口转发；不会直接开放管理后台到公网。
+
+## 下载源码后部署（Windows / Linux / macOS）
 
 只需安装 Docker（Windows 使用 Docker Desktop），无需单独安装 Go、MySQL 或 Redis。Linux 还需要系统常见工具 `bash`、`openssl`、`curl`；Windows 使用 PowerShell 7。
 

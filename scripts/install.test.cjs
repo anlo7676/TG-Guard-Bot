@@ -1,0 +1,59 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const {spawnSync} = require('node:child_process');
+const installer = fs.readFileSync(path.join(__dirname, '../install.sh'), 'utf8');
+test('remote bash -c installer supports first install and safe updates', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tg-guard-install-test-'));
+  const target = path.join(root, 'app');
+
+  const mocks = `
+uname() { echo Linux; }
+id() { echo 0; }
+docker() { return 0; }
+apt-get() { echo 'Unexpected system mutation' >&2; return 99; }
+git() {
+  if [[ "$1" == clone ]]; then
+    mkdir -p "$TG_GUARD_INSTALL_DIR/.git" "$TG_GUARD_INSTALL_DIR/scripts"
+    printf '%s\\n' '#!/bin/bash' 'cd -- "$(dirname -- "$0")/.."' '[[ -f .env ]] || echo preserve-me > .env' 'echo deployed >> deployed' > "$TG_GUARD_INSTALL_DIR/scripts/deploy.sh"
+    return 0
+  fi
+  case "$3" in
+    remote) if [[ -f "$TG_GUARD_INSTALL_DIR/wrong-remote" ]]; then echo https://example.com/other; else echo https://github.com/anlo7676/TG-Guard-Bot.git; fi;;
+    branch) echo main;;
+    status) [[ ! -f "$TG_GUARD_INSTALL_DIR/dirty" ]] || echo ' M file'; return 0;;
+    fetch) return 0;;
+    merge) [[ ! -f "$TG_GUARD_INSTALL_DIR/diverged" ]];;
+    *) return 99;;
+  esac
+}
+`;
+  const run = () => spawnSync(process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash', ['-c', mocks + '\nexport TG_GUARD_INSTALL_DIR="$PWD/app"\n' + installer], {cwd:root, encoding:'utf8'});
+  try {
+    let result = run();
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'preserve-me\n');
+    result = run();
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.readFileSync(path.join(target, 'deployed'), 'utf8'), 'deployed\ndeployed\n');
+    for (const marker of ['dirty', 'wrong-remote', 'diverged']) {
+      fs.writeFileSync(path.join(target, marker), 'test');
+      result = run();
+      assert.notEqual(result.status, 0, marker);
+      assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'preserve-me\n');
+      assert.equal(fs.readFileSync(path.join(target, 'deployed'), 'utf8'), 'deployed\ndeployed\n');
+      fs.unlinkSync(path.join(target, marker));
+    }
+    fs.rmdirSync(path.join(target, '.git'));
+    result = run();
+    assert.notEqual(result.status, 0);
+    assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'preserve-me\n');
+  } finally {
+    assert.ok(path.resolve(root).startsWith(path.resolve(os.tmpdir()) + path.sep));
+    assert.ok(path.basename(root).startsWith('tg-guard-install-test-'));
+    fs.rmSync(root, {recursive:true, force:true});
+  }
+});
