@@ -9,7 +9,22 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"tgguard/internal/state"
 )
+
+func TestPollRedisFailureIdentifiesDependency(t *testing.T) {
+	m := miniredis.RunT(t)
+	s := state.New(m.Addr(), "")
+	defer s.R.Close()
+	m.SetError("temporary outage")
+	c := New("sensitive-bot-token", s)
+	err := c.Call(context.Background(), "getUpdates", map[string]any{}, nil)
+	if err == nil || !strings.Contains(err.Error(), "Redis global rate limit failed") || strings.Contains(err.Error(), "sensitive-bot-token") {
+		t.Fatal(err)
+	}
+}
 
 func TestRestoreUsesGroupDefaultPermissions(t *testing.T) {
 	var restored bool

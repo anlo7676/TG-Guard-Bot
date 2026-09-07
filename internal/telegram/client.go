@@ -43,7 +43,7 @@ func (c *Client) Call(ctx context.Context, method string, in, out any) error {
 					for {
 						allowed, err := c.State.Limit(ctx, fmt.Sprintf("telegram:send:%v", args["chat_id"]), 1, time.Second)
 						if err != nil {
-							return err
+							return fmt.Errorf("telegram %s Redis chat rate limit failed: %w", method, err)
 						}
 						if allowed {
 							break
@@ -57,7 +57,7 @@ func (c *Client) Call(ctx context.Context, method string, in, out any) error {
 			for {
 				ok, e := c.State.Limit(ctx, "telegram:rate", 25, time.Second)
 				if e != nil {
-					return e
+					return fmt.Errorf("telegram %s Redis global rate limit failed: %w", method, e)
 				}
 				if ok {
 					break

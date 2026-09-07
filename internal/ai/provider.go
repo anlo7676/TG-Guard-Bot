@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	"tgguard/internal/domain"
 	"tgguard/internal/state"
 	"tgguard/internal/store"
@@ -50,9 +52,15 @@ func (p *Compatible) Review(ctx context.Context, n domain.Normalized, r domain.R
 	text := store.JSON(input)
 	cacheKey := "ai:moderation:" + state.Hash(fmt.Sprintf("v1:%s:%s:%d:%s", p.BaseURL, p.Model, n.ChatID, text))
 	start := time.Now()
+	stage, stageStart := "cache_read", start
+	setStage := func(name string) { stage, stageStart = name, time.Now() }
 	cached := false
 	inTokens, outTokens := 0, 0
 	defer func() {
+		// Capture diagnostics before the usage audit adds unrelated database latency.
+		if err != nil {
+			err = fmt.Errorf("AI review failed (stage=%s elapsed_ms=%d stage_ms=%d timeout_ms=%d): %w", stage, time.Since(start).Milliseconds(), time.Since(stageStart).Milliseconds(), p.Timeout.Milliseconds(), err)
+		}
 		if p.Store != nil {
 			status := "ok"
 			if err != nil {
@@ -65,10 +73,27 @@ func (p *Compatible) Review(ctx context.Context, n domain.Normalized, r domain.R
 			}
 		}
 	}()
-	if !p.BypassCache && p.State != nil && p.State.Get(ctx, cacheKey, &result) == nil && result.Validate() == nil {
-		cached = true
-		return result, nil
+	readCache := func() (bool, error) {
+		if p.BypassCache || p.State == nil {
+			return false, nil
+		}
+		e := p.State.Get(ctx, cacheKey, &result)
+		if e != nil {
+			// A cache miss or corrupt cached JSON can be recomputed. A Redis
+			// outage must stop here: the mandatory budget check also needs Redis.
+			var syntax *json.SyntaxError
+			var mismatch *json.UnmarshalTypeError
+			if errors.Is(e, redis.Nil) || errors.As(e, &syntax) || errors.As(e, &mismatch) {
+				return false, nil
+			}
+			return false, fmt.Errorf("Redis AI cache read failed: %w", e)
+		}
+		return result.Validate() == nil, nil
 	}
+	if cached, err = readCache(); err != nil || cached {
+		return result, err
+	}
+	setStage("concurrency_wait")
 	select {
 	case p.Slots <- struct{}{}:
 		defer func() { <-p.Slots }()
@@ -76,18 +101,20 @@ func (p *Compatible) Review(ctx context.Context, n domain.Normalized, r domain.R
 		return result, ctx.Err()
 	}
 	if p.State != nil {
-		if !p.BypassCache && p.State.Get(ctx, cacheKey, &result) == nil && result.Validate() == nil {
-			cached = true
-			return result, nil
+		setStage("cache_recheck")
+		if cached, err = readCache(); err != nil || cached {
+			return result, err
 		}
+		setStage("redis_budget")
 		ok, e := p.State.Limit(ctx, fmt.Sprintf("ai:budget:%d", n.ChatID), 30, time.Minute)
 		if e != nil {
-			return result, e
+			return result, fmt.Errorf("Redis AI budget check failed: %w", e)
 		}
 		if !ok {
 			return result, errors.New("group AI rate limit exceeded")
 		}
 	}
+	setStage("request_prepare")
 	maxTokens := p.MaxTokens
 	if maxTokens == 0 {
 		maxTokens = 500
@@ -107,11 +134,13 @@ func (p *Compatible) Review(ctx context.Context, n domain.Normalized, r domain.R
 	}
 	req.Header.Set("Authorization", "Bearer "+p.Key)
 	req.Header.Set("Content-Type", "application/json")
+	setStage("http_request")
 	resp, e := p.HTTP.Do(req)
 	if e != nil {
-		return result, errors.New("AI transport failure or timeout")
+		return result, transportError(e)
 	}
 	defer resp.Body.Close()
+	setStage("response_read")
 	if resp.StatusCode != http.StatusOK {
 		return result, fmt.Errorf("AI HTTP %d", resp.StatusCode)
 	}
