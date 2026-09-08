@@ -14,16 +14,20 @@ test('remote bash -c installer supports first install and safe updates', () => {
 uname() { echo Linux; }
 id() { echo 0; }
 docker() { return 0; }
+curl() { echo '"tag_name": "v1.8.0",'; }
 apt-get() { echo 'Unexpected system mutation' >&2; return 99; }
 git() {
   if [[ "$1" == clone ]]; then
     mkdir -p "$TG_GUARD_INSTALL_DIR/.git" "$TG_GUARD_INSTALL_DIR/scripts"
-    printf '%s\\n' '#!/bin/bash' 'cd -- "$(dirname -- "$0")/.."' '[[ -f .env ]] || echo preserve-me > .env' 'echo deployed >> deployed' > "$TG_GUARD_INSTALL_DIR/scripts/deploy.sh"
+    printf '%s\\n' '#!/bin/bash' 'cd -- "$(dirname -- "$0")/.."' '[[ -f .env ]] || echo preserve-me > .env' 'if [[ -f fail-deploy ]]; then rm fail-deploy; exit 1; fi' 'echo deployed >> deployed' > "$TG_GUARD_INSTALL_DIR/scripts/deploy.sh"
     return 0
   fi
   case "$3" in
     remote) if [[ -f "$TG_GUARD_INSTALL_DIR/wrong-remote" ]]; then echo https://example.com/other; else echo https://github.com/anlo7676/TG-Guard-Bot.git; fi;;
     branch) echo main;;
+    switch) return 0;;
+    rev-parse) echo 1234567890abcdef;;
+    reset) echo restored > "$TG_GUARD_INSTALL_DIR/rollback"; return 0;;
     status) [[ ! -f "$TG_GUARD_INSTALL_DIR/dirty" ]] || echo ' M file'; return 0;;
     fetch) [[ ! -f "$TG_GUARD_INSTALL_DIR/offline" ]];;
     merge) [[ ! -f "$TG_GUARD_INSTALL_DIR/diverged" ]];;
@@ -47,6 +51,11 @@ git() {
       assert.equal(fs.readFileSync(path.join(target, 'deployed'), 'utf8'), 'deployed\ndeployed\n');
       fs.unlinkSync(path.join(target, marker));
     }
+    fs.writeFileSync(path.join(target, 'fail-deploy'), 'test');
+    result = run();
+    assert.notEqual(result.status, 0, 'failed rollout must be reported');
+    assert.ok(fs.existsSync(path.join(target, 'rollback')));
+    assert.equal(fs.readFileSync(path.join(target, '.env'), 'utf8'), 'preserve-me\n');
     fs.writeFileSync(path.join(target, 'scripts/manage.sh'), 'echo reached > menu-reached\n');
     fs.writeFileSync(path.join(target, 'offline'), 'test');
     result = run();

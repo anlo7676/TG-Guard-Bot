@@ -16,7 +16,7 @@ func (s *Server) authorization(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in, 4096, true) {
 		return
 	}
-	if e := s.Service.Store.AuthorizeGroup(r.Context(), chat, 0, in.Status, in.Reason); e != nil {
+	if e := s.Service.Store.AuthorizeGroup(r.Context(), chat, actor(r), in.Status, in.Reason); e != nil {
 		respond(w, 400, map[string]string{"error": e.Error()})
 		return
 	}

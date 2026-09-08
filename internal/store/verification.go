@@ -12,11 +12,6 @@ import (
 
 var ErrVerification = errors.New("verification invalid, expired, wrong answer or wrong user")
 
-func (s *Store) CancelVerification(ctx context.Context, chat, user int64) error {
-	_, e := s.DB.ExecContext(ctx, "UPDATE verification_sessions SET status='cancelled' WHERE chat_id=? AND user_id=? AND status IN ('pending','completing','expiring','releasing')", chat, user)
-	return e
-}
-
 type Verification struct {
 	Token       string    `json:"token"`
 	ChatID      int64     `json:"chat_id"`
@@ -133,7 +128,7 @@ func (s *Store) DueVerifications(ctx context.Context) ([]Verification, error) {
 	if e != nil {
 		return nil, e
 	}
-	rows, e := s.DB.QueryContext(ctx, "SELECT "+verifyColumns+" FROM verification_sessions WHERE (status IN ('expiring','completing','releasing') OR (status IN ('verified','expired','cancelled','blocked','left') AND notice_done=FALSE)) AND next_attempt_at<=UTC_TIMESTAMP(6) ORDER BY next_attempt_at LIMIT 100")
+	rows, e := s.DB.QueryContext(ctx, "SELECT "+verifyColumns+" FROM (SELECT v.*,ROW_NUMBER() OVER(PARTITION BY chat_id ORDER BY next_attempt_at,created_at) AS recovery_position FROM verification_sessions v WHERE (status IN ('expiring','completing','releasing') OR (status IN ('verified','expired','cancelled','blocked','left') AND notice_done=FALSE)) AND next_attempt_at<=UTC_TIMESTAMP(6)) due WHERE recovery_position<=2 ORDER BY next_attempt_at LIMIT 100")
 	if e != nil {
 		return nil, e
 	}

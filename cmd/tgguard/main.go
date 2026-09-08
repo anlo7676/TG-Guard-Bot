@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+
 	"net/http"
 	"os"
 	"os/signal"
@@ -75,7 +76,7 @@ func run() error {
 	for id := range c.SuperAdmins {
 		ids = append(ids, id)
 	}
-	runtime, e := settings.New(startup, db, c.SettingsKey, settings.Config{SuperAdmins: ids, AI: settings.AI{Enabled: c.AIKey != "", BaseURL: c.AIBaseURL, Model: c.AIModel, APIKey: c.AIKey, TimeoutSeconds: int(c.AITimeout.Seconds()), MaxTokens: 500, TokenParameter: "max_completion_tokens"}})
+	runtime, e := settings.New(startup, db, c.SettingsKey, settings.Config{SuperAdmins: ids, AI: settings.AI{AllowInsecureHTTP: c.AIAllowInsecureHTTP, Enabled: c.AIKey != "", BaseURL: c.AIBaseURL, Model: c.AIModel, APIKey: c.AIKey, TimeoutSeconds: int(c.AITimeout.Seconds()), MaxTokens: 500, TokenParameter: "max_completion_tokens"}})
 	if e != nil {
 		return e
 	}
@@ -83,7 +84,8 @@ func run() error {
 	svc := &service.Service{Health: service.NewIngestionHealth(c.Mode), RetentionDays: c.RetentionDays, Store: db, State: cache, Bot: tg, AI: provider, SuperAdmins: c.SuperAdmins, Runtime: runtime}
 	handler := &bot.Handler{Service: svc}
 	web := &api.Server{Service: svc, Config: c}
-	server := &http.Server{Addr: c.HTTPAddr, Handler: web.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 45 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
+	server := newHTTPServer(ctx, c.HTTPAddr, web.Handler())
+
 	// One process owns ingestion and recovery. Workers inside it process different chats concurrently.
 	leaseConn, e := db.DB.Conn(ctx)
 	if e != nil {
@@ -136,18 +138,8 @@ func run() error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for ctx.Err() == nil {
-			if state.Sleep(ctx, 5*time.Second) != nil {
-				return
-			}
-			var mine int
-			check, done := context.WithTimeout(ctx, 3*time.Second)
-			e := leaseConn.QueryRowContext(check, "SELECT IS_USED_LOCK(?)=CONNECTION_ID()", lockName).Scan(&mine)
-			done()
-			if e != nil || mine != 1 {
-				errCh <- errors.New("instance lock lost")
-				return
-			}
+		if err := watchInstance(ctx, leaseConn, lockName, 5*time.Second); err != nil {
+			errCh <- err
 		}
 	}()
 	slog.Info("TG Guard started", "bot", tg.Username, "mode", c.Mode, "workers", c.Workers, "http_addr", c.HTTPAddr, "build", buildinfo.Info())
@@ -158,7 +150,9 @@ func run() error {
 	stop()
 	shutdown, done := context.WithTimeout(context.Background(), 10*time.Second)
 	defer done()
-	server.Shutdown(shutdown)
+	if shutdownErr := shutdownHTTP(shutdown, server); shutdownErr != nil && e == nil {
+		e = shutdownErr
+	}
 	wg.Wait()
 	return e
 }

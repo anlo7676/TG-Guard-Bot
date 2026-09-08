@@ -2,14 +2,17 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
 	"strings"
+	"tgguard/internal/telegram"
 	"time"
 	"unicode/utf16"
 
 	"tgguard/internal/domain"
+	"tgguard/internal/store"
 )
 
 var welcomeVariable = regexp.MustCompile(`\{(?:name|username|user_id|group|timeout)\}`)
@@ -113,7 +116,7 @@ func (s *Service) welcomeLocked(ctx context.Context, chat domain.Chat, u domain.
 	}
 	if e = s.Store.MarkWelcomed(ctx, chat.ID, u.ID, message); e != nil {
 		// Avoid leaving an unscheduled welcome when recording fails.
-		if cleanupErr := s.Bot.Delete(ctx, chat.ID, message); cleanupErr != nil {
+		if cleanupErr := s.executor().Delete(ctx, chat.ID, message); cleanupErr != nil {
 			slog.Error("unscheduled welcome cleanup failed", "chat_id", chat.ID, "message_id", message, "error", cleanupErr)
 		}
 		return e
@@ -126,22 +129,25 @@ func (s *Service) SweepWelcomeCleanup(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
-	for _, item := range items {
+	recoverGroups(ctx, items, func(v store.WelcomeCleanup) int64 { return v.ChatID }, func(ctx context.Context, item store.WelcomeCleanup) {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return
 		}
-		c, cancel := context.WithTimeout(ctx, 10*time.Second)
-		err := s.Bot.Delete(c, item.ChatID, item.MessageID)
+		c, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err := s.executor().Delete(c, item.ChatID, item.MessageID)
 		cancel()
 		done, stop := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
-		recordErr := s.Store.FinishWelcomeCleanup(done, item, err)
+		var te *telegram.APIError
+		permanent := errors.As(err, &te) && te.Code == 400
+		recordErr := s.Store.FinishWelcomeCleanup(done, item, err, permanent)
 		stop()
 		if recordErr != nil {
-			return recordErr
+			slog.Error("welcome cleanup audit failed", "chat_id", item.ChatID, "error", recordErr)
+			return
 		}
 		if err != nil {
-			slog.Warn("welcome deletion will retry", "chat_id", item.ChatID, "message_id", item.MessageID, "error", err)
+			slog.Warn("welcome deletion failed", "terminal", permanent, "chat_id", item.ChatID, "message_id", item.MessageID, "error", err)
 		}
-	}
+	})
 	return nil
 }

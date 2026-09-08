@@ -9,7 +9,13 @@ import (
 	"tgguard/internal/service"
 )
 
-type Handler struct{ Service *service.Service }
+type Handler struct {
+	Service  *service.Service
+	Queue    Inbox
+	Telegram Caller
+	Process  func(context.Context, domain.Update) error
+	Health   *service.IngestionHealth
+}
 
 func (h *Handler) Handle(ctx context.Context, u domain.Update) error {
 	s := h.Service

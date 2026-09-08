@@ -1,6 +1,6 @@
 FROM alpine:3.23 AS download
 ARG TARGETARCH
-ARG RELEASE_VERSION=v1.7.9
+ARG RELEASE_VERSION=v1.8.0
 RUN apk add --no-cache ca-certificates \
     && case "$TARGETARCH" in amd64|arm64) ;; *) echo "Unsupported architecture: $TARGETARCH"; exit 1;; esac \
     && mkdir /out && cd /out \

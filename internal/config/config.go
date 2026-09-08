@@ -11,6 +11,7 @@ import (
 )
 
 type Config struct {
+	AIAllowInsecureHTTP                                  bool
 	RetentionDays                                        int
 	Token, Mode, HTTPAddr, DSN, RedisAddr, RedisPassword string
 	AdminToken, WebhookURL, WebhookSecret                string
@@ -49,6 +50,9 @@ func Load() (Config, error) {
 		}
 	}
 	var err error
+	if c.AIAllowInsecureHTTP, err = strconv.ParseBool(env("AI_ALLOW_INSECURE_HTTP", "false")); err != nil {
+		return c, errors.New("AI_ALLOW_INSECURE_HTTP must be true or false")
+	}
 	if c.RetentionDays, err = number("RETENTION_DAYS", 90, 0, 3650); err != nil {
 		return c, err
 	}
@@ -65,6 +69,9 @@ func Load() (Config, error) {
 		return c, errors.New("AI_TIMEOUT must be 1s-30s")
 	}
 	if c.AIKey != "" {
+		if strings.HasPrefix(strings.ToLower(c.AIBaseURL), "http://") && !c.AIAllowInsecureHTTP {
+			return c, errors.New("AI HTTP requires explicit AI_ALLOW_INSECURE_HTTP=true")
+		}
 		u, e := url.Parse(c.AIBaseURL)
 		if e != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || c.AIModel == "" {
 			return c, errors.New("AI_BASE_URL and AI_MODEL are invalid")

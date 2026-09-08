@@ -4,7 +4,7 @@
 
 | 需求原方案 | 本项目 |
 | --- | --- |
-| Python 3.12 / aiogram | Go 1.26.2，独立 Telegram HTTP 客户端 |
+| Python 3.12 / aiogram | Go 1.26.7，独立 Telegram HTTP 客户端 |
 | FastAPI | Go 标准库 net/http 路由和中间件 |
 | PostgreSQL / SQLAlchemy | MySQL 8.4 / database/sql / go-sql-driver/mysql |
 | Alembic | 内嵌、版本化 SQL 迁移，数据库互斥锁 |
@@ -50,13 +50,13 @@ stateDiagram-v2
   completing --> left: 用户已离群
   completing --> blocked: 已进入黑名单且不是管理员
   expiring --> expired: 按创建时策略处理
-  pending --> cancelled: 管理员或审核处罚接管
-  completing --> cancelled: 管理员或审核处罚接管
+  pending --> cancelled: 处罚成功并提交接管事务
+  completing --> cancelled: 处罚成功并提交接管事务
 ```
 
 MySQL 是验证状态的权威来源，Redis 保存短期映射和带所有者 Token 的互斥锁。私聊回答锁定数据库行，校验用户、有效期、尝试次数和答案哈希；完成和超时分别进入互斥状态。后台扫描会恢复中断任务，失败延迟重试，避免失去权限的群长期占满扫描队列。
 
-恢复权限读取 `getChat.permissions`，不会默认开放群本身禁止的媒体权限。通过本机器人进行的人工禁言／封禁会取消未完成验证，避免随后验证成功把处罚解除。外部管理员直接在 Telegram 中改权限的并发行为无法与本地数据库做原子事务，运维时应避免同时人工限制正在验证的同一用户。
+恢复权限读取 `getChat.permissions`，不会默认开放群本身禁止的媒体权限。处罚表中的 pending 权限操作是持久接管意图，验证暂时等待；Telegram 操作成功后，在同一事务中提交 acted 和 cancelled。确定失败会释放接管意图，未知网络结果保留并由恢复任务协调，避免随后验证成功把处罚解除。外部管理员直接在 Telegram 中改权限的并发行为无法与本地数据库做原子事务，运维时应避免同时人工限制正在验证的同一用户。
 
 ## 可靠性与边界
 
@@ -73,7 +73,7 @@ MySQL 是验证状态的权威来源，Redis 保存短期映射和带所有者 T
 
 ## 后续阶段
 
-1. 独立多管理员 Web 账号、按群授权和完整国际化；当前已提供内嵌中文后台和后台管理员会话。
+1. Web 按群授权和完整国际化；当前已支持按 Telegram 管理员 ID 签发独立后台密钥、单人撤销和具名审计，所有网页管理员目前仍是全局权限。
 2. 图片验证码和 Turnstile/Mini App Provider；OCR／二维码／视觉审核。
 3. 语义相似 Spam、滑动窗口多档限流、可视化策略编辑器。
 4. KMS／信封加密、实际供应商费用核算、AI 配额、模型回归数据集。

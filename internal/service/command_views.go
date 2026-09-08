@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"tgguard/internal/domain"
+	"tgguard/internal/store"
 )
 
 func menuSectionLabel(section string) string {
@@ -24,7 +25,7 @@ func rulesSummary(v domain.Settings) string {
 	return text + fmt.Sprintf("\n自定义广告规则：%d 条。点击按钮设置命中动作。", len(v.AdRules))
 }
 func (s *Service) statsSummary(ctx context.Context, chat int64) (string, error) {
-	rows, e := s.Store.Rows(ctx, "SELECT (SELECT COUNT(*) FROM group_members WHERE chat_id=? AND left_at IS NULL) AS known_members,(SELECT COUNT(*) FROM moderation_logs WHERE chat_id=?) AS reviewed_messages,(SELECT COUNT(*) FROM punishments WHERE chat_id=? AND status='done') AS punishments", chat, chat, chat)
+	rows, e := s.Store.View(ctx, store.ViewGroupStats, chat, chat, chat)
 	if e != nil {
 		return "", e
 	}
@@ -65,7 +66,7 @@ func (s *Service) keywordSummary(ctx context.Context, m domain.Message) error {
 	return s.commandMenuLink(ctx, m, "keywords", text)
 }
 func (s *Service) listSummary(ctx context.Context, m domain.Message, kind string) error {
-	rows, e := s.Store.Rows(ctx, "SELECT user_id,username FROM list_entries WHERE chat_id=? AND kind=? ORDER BY id DESC LIMIT 21", m.Chat.ID, kind)
+	rows, e := s.Store.View(ctx, store.ViewListSummary, m.Chat.ID, kind)
 	if e != nil {
 		return e
 	}

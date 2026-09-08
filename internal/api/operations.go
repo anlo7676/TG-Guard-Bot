@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"tgguard/internal/store"
 	"time"
 )
 
@@ -32,12 +33,15 @@ func (s *Server) userDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result := map[string]any{}
-	for _, q := range []struct{ Key, SQL string }{
-		{"verifications", "SELECT status,challenge_type,attempts,expires_at,verified_at,created_at FROM verification_sessions WHERE chat_id=? AND user_id=? ORDER BY created_at DESC LIMIT 20"},
-		{"reviews", "SELECT id,message_text,risk_score,decision,created_at FROM moderation_logs WHERE chat_id=? AND user_id=? ORDER BY id DESC LIMIT 20"},
-		{"punishments", "SELECT id,decision,status,last_error,created_at FROM punishments WHERE chat_id=? AND user_id=? ORDER BY id DESC LIMIT 20"},
+	for _, q := range []struct {
+		Key string
+		SQL store.View
+	}{
+		{"verifications", store.ViewUserVerifications},
+		{"reviews", store.ViewUserReviews},
+		{"punishments", store.ViewUserPunishments},
 	} {
-		rows, e := s.Service.Store.Rows(r.Context(), q.SQL, chat, user)
+		rows, e := s.Service.Store.View(r.Context(), q.SQL, chat, user)
 		if e != nil {
 			apiError(w, e)
 			return
@@ -53,7 +57,7 @@ func (s *Server) retryDead(w http.ResponseWriter, r *http.Request) {
 		respond(w, 400, map[string]string{"error": "无效任务 ID"})
 		return
 	}
-	if err = s.Service.Store.RetryDead(r.Context(), id, 0); err != nil {
+	if err = s.Service.Store.RetryDead(r.Context(), id, actor(r)); err != nil {
 		apiError(w, err)
 		return
 	}

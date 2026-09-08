@@ -48,13 +48,7 @@ docker compose logs --tail=100 redis
 
 ## 死信与失败恢复
 
-`GET /api/v1/queue/dead` 显示失败 5 次的 Update。先检查对应错误，修复权限／配置／网络，再通过受控数据库连接重放指定 Update：
-
-```sql
-UPDATE update_inbox
-SET status='pending', attempts=0, available_at=UTC_TIMESTAMP(6), lease_until=NULL
-WHERE update_id=待重放的ID AND status='dead';
-```
+`GET /api/v1/queue/dead` 显示失败 5 次的 Update。先检查对应错误，修复权限／配置／网络，再在网页后台「失败任务」点击「重新处理」，或使用已鉴权的 `POST /api/v1/queue/{update}/retry`。该入口记录操作者；不要直接通过 SQL 修改队列状态。
 
 审查原始事件时间和目标身份后再重放，避免把很久以前的管理员命令应用到当前状态。既有审核决策和完成的处罚步骤会复用；不要删除 `moderation_logs` 或 `punishments` 来强制重放。
 
@@ -70,13 +64,13 @@ WHERE status IN ('completing','expiring');
 
 MySQL 卷保存群配置、成员、验证、审核和处罚数据；Redis 卷保存 AOF。使用数据库备份工具定期备份 MySQL，测试恢复流程，并妥善保管 `.env`。`docker compose down` 不删除数据卷；只有明确希望清空环境时才使用删除卷选项。
 
-当前不自动删除审计数据。部署方可按自己的保留期归档已完成 `update_inbox` 原始负载、审核和 AI 日志，保留必要去重元数据；不要清除正在处理的队列和验证记录。直接删除历史收件箱会缩短去重能力，重放旧 Update 时需人工核验。
+默认 `RETENTION_DAYS=90`，每小时分批清除过期已完成事件原文、普通审核原文和 AI 用量明细。原文清除不可恢复，请先按需备份；设置为 `0` 可关闭。处罚计数、去重记录、反馈证据和未完成工作保留。元数据仍会增长，不应清空处罚表或收件箱。
 
 ## 本地构建产物
 
 ```powershell
 .\scripts\test.ps1
-# 可执行文件：bin/tgguard.exe
+# 待发布文件：bin/tgguard-next.exe；使用 start-local.ps1 构建并切换运行文件
 ```
 
 Linux 可使用 `CGO_ENABLED=0 go build -trimpath -o bin/tgguard ./cmd/tgguard`。升级数据库结构时新增迁移文件，已在生产执行的迁移不可修改；迁移前先备份。MySQL DDL 无整体事务回滚，新增迁移应设计为可安全恢复的操作。

@@ -61,6 +61,12 @@ func (s *Service) Join(ctx context.Context, chat domain.Chat, u domain.User) err
 	if e != nil {
 		return e
 	}
+	if busy, e := s.Store.VerificationTakenOver(ctx, chat.ID, u.ID); e != nil || busy {
+		if e != nil {
+			return e
+		}
+		return fmt.Errorf("成员权限正在处理中，请稍后重试")
+	}
 	if alreadyVerified {
 		return nil
 	}
@@ -98,7 +104,7 @@ func (s *Service) Join(ctx context.Context, chat domain.Chat, u domain.User) err
 		return nil
 	}
 	// Persist first so a crash after restriction can still be recovered by the timeout worker.
-	if e = s.Bot.Restrict(ctx, chat.ID, u.ID, 0); e != nil {
+	if e = s.executor().Restrict(ctx, chat.ID, u.ID, 0); e != nil {
 		return e
 	}
 	if v.PromptID == 0 {
@@ -132,7 +138,7 @@ func (s *Service) StartVerification(ctx context.Context, m domain.Message, token
 		return s.text(ctx, m.Chat.ID, "这不是你的入群验证，无需操作。只有该验证对应的新成员可以完成验证。")
 	}
 	if v.Status == "cancelled" || v.Status == "releasing" {
-		return s.text(ctx, m.Chat.ID, "这次验证已取消，无需再答题；系统会自动解除本次验证造成的禁言。")
+		return s.text(ctx, m.Chat.ID, "这次验证已结束或由管理员接管。如仍无法发言，请联系群管理员处理。")
 	}
 	if v.Status != "pending" || time.Now().After(v.ExpiresAt) {
 		return s.Say(ctx, m.Chat.ID, "zh_CN", "invalid_verify")
@@ -202,7 +208,13 @@ func (s *Service) AnswerVerification(ctx context.Context, token string, user int
 		return s.text(ctx, user, "你已通过这次验证，无需重复提交。")
 	}
 	if v.Status == "cancelled" || v.Status == "releasing" {
-		return s.text(ctx, user, "这次验证已取消，无需再答题；系统会自动解除本次验证造成的禁言。")
+		return s.text(ctx, user, "这次验证已结束或由管理员接管。如仍无法发言，请联系群管理员处理。")
+	}
+	if busy, e := s.Store.VerificationTakenOver(ctx, v.ChatID, v.UserID); e != nil || busy {
+		if e != nil {
+			return e
+		}
+		return s.text(ctx, user, "管理员正在处理你的发言权限，请稍后重试。")
 	}
 	if v.Status == "completing" {
 		return s.finishVerification(ctx, v)
@@ -229,6 +241,12 @@ func (s *Service) finishVerification(ctx context.Context, v store.Verification) 
 		return s.finishVerificationNotices(ctx, v, settings)
 	}
 
+	if busy, e := s.Store.VerificationTakenOver(ctx, v.ChatID, v.UserID); e != nil || busy {
+		if e != nil {
+			return e
+		}
+		return fmt.Errorf("verification awaiting punishment reconciliation")
+	}
 	m, e := s.Bot.Member(ctx, v.ChatID, v.UserID)
 	if e != nil {
 		return e
@@ -244,12 +262,12 @@ func (s *Service) finishVerification(ctx context.Context, v store.Verification) 
 	status := "expired"
 	if !authorized || !settings.VerificationEnabled || v.Status == "releasing" {
 		if m.Status == "restricted" {
-			if e = s.Bot.Restore(ctx, v.ChatID, v.UserID); e != nil {
+			if e = s.executor().Restore(ctx, v.ChatID, v.UserID); e != nil {
 				return e
 			}
 		}
 		if v.KickStarted && v.FailAction == "kick" {
-			if e = s.Bot.Unban(ctx, v.ChatID, v.UserID); e != nil {
+			if e = s.executor().Unban(ctx, v.ChatID, v.UserID); e != nil {
 				return e
 			}
 		}
@@ -263,13 +281,13 @@ func (s *Service) finishVerification(ctx context.Context, v store.Verification) 
 				return e
 			}
 			if kind == "black" && !m.Admin() && !s.IsSuperAdmin(v.UserID) {
-				if e = s.Bot.Ban(ctx, v.ChatID, v.UserID); e != nil {
+				if e = s.executor().Ban(ctx, v.ChatID, v.UserID); e != nil {
 					return e
 				}
 				status = "blocked"
 			} else {
 				if !m.Admin() {
-					if e = s.Bot.Restore(ctx, v.ChatID, v.UserID); e != nil {
+					if e = s.executor().Restore(ctx, v.ChatID, v.UserID); e != nil {
 						return e
 					}
 				}
@@ -282,7 +300,7 @@ func (s *Service) finishVerification(ctx context.Context, v store.Verification) 
 			return e
 		}
 		if protected && m.Status == "restricted" {
-			if e = s.Bot.Restore(ctx, v.ChatID, v.UserID); e != nil {
+			if e = s.executor().Restore(ctx, v.ChatID, v.UserID); e != nil {
 				return e
 			}
 			status = "cancelled"
@@ -295,17 +313,17 @@ func (s *Service) finishVerification(ctx context.Context, v store.Verification) 
 						return e
 					}
 					v.KickStarted = true
-					if e = s.Bot.Ban(ctx, v.ChatID, v.UserID); e != nil {
+					if e = s.executor().Ban(ctx, v.ChatID, v.UserID); e != nil {
 						return e
 					}
 				}
 				if v.KickStarted {
-					if e = s.Bot.Unban(ctx, v.ChatID, v.UserID); e != nil {
+					if e = s.executor().Unban(ctx, v.ChatID, v.UserID); e != nil {
 						return e
 					}
 				}
 			} else if v.FailAction == "ban" && m.Present() {
-				if e = s.Bot.Ban(ctx, v.ChatID, v.UserID); e != nil {
+				if e = s.executor().Ban(ctx, v.ChatID, v.UserID); e != nil {
 					return e
 				}
 			}
@@ -339,7 +357,7 @@ func (s *Service) finishVerificationNotices(ctx context.Context, v store.Verific
 		return e
 	}
 	if v.PromptID > 0 {
-		if e := s.Bot.Delete(ctx, v.ChatID, v.PromptID); e != nil {
+		if e := s.executor().Delete(ctx, v.ChatID, v.PromptID); e != nil {
 			return e
 		}
 	}
@@ -360,11 +378,11 @@ func (s *Service) SweepVerification(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
-	for _, v := range vs {
+	recoverGroups(ctx, vs, func(v store.Verification) int64 { return v.ChatID }, func(ctx context.Context, v store.Verification) {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return
 		}
-		c, cancel := context.WithTimeout(ctx, 40*time.Second)
+		c, cancel := context.WithTimeout(ctx, 8*time.Second)
 		unlock, e := s.State.Lock(c, verifyLock(v.ChatID, v.UserID), 60*time.Second)
 		if e == nil {
 			current, readErr := s.Store.Verification(c, v.Token)
@@ -384,6 +402,6 @@ func (s *Service) SweepVerification(ctx context.Context) error {
 			}
 			done()
 		}
-	}
+	})
 	return nil
 }

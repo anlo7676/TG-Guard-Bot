@@ -128,7 +128,11 @@ func TestTicketSurvivesRedisFailureAndSessionCreatedAtomically(t *testing.T) {
 	server := &Server{Service: &service.Service{State: cache}, Config: config.Config{AdminToken: strings.Repeat("k", 32)}}
 	h := server.Handler()
 	ticket := strings.Repeat("t", 32)
-	if e := cache.R.Set(context.Background(), "web:ticket:"+state.Hash(ticket), "1", time.Minute).Err(); e != nil {
+	epoch, e := server.authEpoch(context.Background(), 0)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e := cache.Put(context.Background(), "web:ticket:"+state.Hash(ticket), webSession{Epoch: epoch}, time.Minute); e != nil {
 		t.Fatal(e)
 	}
 	exchange := func() *httptest.ResponseRecorder {
@@ -155,5 +159,76 @@ func TestTicketSurvivesRedisFailureAndSessionCreatedAtomically(t *testing.T) {
 	}
 	if w = exchange(); w.Code != 401 {
 		t.Fatal("ticket reused", w.Code)
+	}
+}
+
+func TestCredentialRotationAndGlobalRevocation(t *testing.T) {
+	s, h := authServer(t)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("POST", "/auth/login", strings.NewReader(`{"token":"`+s.Config.AdminToken+`"}`)))
+	if w.Code != 200 {
+		t.Fatal(w.Code)
+	}
+	cookie := w.Result().Cookies()[0]
+	var body map[string]string
+	json.Unmarshal(w.Body.Bytes(), &body)
+	call := func(path string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", path, strings.NewReader(`{}`))
+		r.AddCookie(cookie)
+		r.Header.Set("X-CSRF-Token", body["csrf"])
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	ticketResponse := call("/api/v1/panel-ticket")
+	if ticketResponse.Code != 200 {
+		t.Fatal(ticketResponse.Code)
+	}
+	var ticket map[string]string
+	json.Unmarshal(ticketResponse.Body.Bytes(), &ticket)
+	old := s.Config.AdminToken
+	s.Config.AdminToken = strings.Repeat("n", 32)
+	if w := call("/api/v1/panel-ticket"); w.Code != 401 {
+		t.Fatal("old session survived rotation", w.Code)
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("POST", "/auth/ticket", strings.NewReader(`{"ticket":"`+ticket["ticket"]+`"}`)))
+	if w.Code != 401 {
+		t.Fatal("old ticket survived rotation", w.Code)
+	}
+	s.Config.AdminToken = old
+	if w := call("/api/v1/sessions/revoke"); w.Code != 200 {
+		t.Fatal(w.Code)
+	}
+	if w := call("/api/v1/panel-ticket"); w.Code != 401 {
+		t.Fatal("global revocation failed", w.Code)
+	}
+}
+
+func TestRevokedInflightSessionCannotMintCurrentTicket(t *testing.T) {
+	s, h := authServer(t)
+	ctx := context.Background()
+	epoch, err := s.authEpoch(ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Service.State.R.Set(ctx, "web:auth_epoch", "new-generation", 0).Err(); err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest("POST", "/api/v1/panel-ticket", nil)
+	r = r.WithContext(context.WithValue(ctx, sessionEpochKey{}, epoch))
+	w := httptest.NewRecorder()
+	s.ticket(w, r)
+	if w.Code != 200 {
+		t.Fatal(w.Code)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("POST", "/auth/ticket", strings.NewReader(`{"ticket":"`+body["ticket"]+`"}`)))
+	if w.Code != 401 {
+		t.Fatal("in-flight revoked session minted a usable ticket", w.Code)
 	}
 }

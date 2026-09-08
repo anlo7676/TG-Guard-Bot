@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/url"
 	"strings"
 	"sync"
@@ -17,13 +18,14 @@ import (
 )
 
 type AI struct {
-	Enabled        bool   `json:"enabled"`
-	BaseURL        string `json:"base_url"`
-	Model          string `json:"model"`
-	APIKey         string `json:"api_key,omitempty"`
-	TimeoutSeconds int    `json:"timeout_seconds"`
-	MaxTokens      int    `json:"max_tokens"`
-	TokenParameter string `json:"token_parameter"`
+	AllowInsecureHTTP bool   `json:"allow_insecure_http"`
+	Enabled           bool   `json:"enabled"`
+	BaseURL           string `json:"base_url"`
+	Model             string `json:"model"`
+	APIKey            string `json:"api_key,omitempty"`
+	TimeoutSeconds    int    `json:"timeout_seconds"`
+	MaxTokens         int    `json:"max_tokens"`
+	TokenParameter    string `json:"token_parameter"`
 }
 type Config struct {
 	SuperAdmins []int64 `json:"super_admins"`
@@ -31,13 +33,14 @@ type Config struct {
 	AI          AI      `json:"ai"`
 }
 type PublicAI struct {
-	Enabled        bool   `json:"enabled"`
-	BaseURL        string `json:"base_url"`
-	Model          string `json:"model"`
-	KeyConfigured  bool   `json:"key_configured"`
-	TimeoutSeconds int    `json:"timeout_seconds"`
-	MaxTokens      int    `json:"max_tokens"`
-	TokenParameter string `json:"token_parameter"`
+	AllowInsecureHTTP bool   `json:"allow_insecure_http"`
+	Enabled           bool   `json:"enabled"`
+	BaseURL           string `json:"base_url"`
+	Model             string `json:"model"`
+	KeyConfigured     bool   `json:"key_configured"`
+	TimeoutSeconds    int    `json:"timeout_seconds"`
+	MaxTokens         int    `json:"max_tokens"`
+	TokenParameter    string `json:"token_parameter"`
 }
 type Public struct {
 	SuperAdmins []int64  `json:"super_admins"`
@@ -48,7 +51,7 @@ type Public struct {
 func (c Config) Public() Public {
 	ids := append([]int64{}, c.SuperAdmins...)
 	a := c.AI
-	return Public{ids, c.PanelURL, PublicAI{a.Enabled, a.BaseURL, a.Model, a.APIKey != "", a.TimeoutSeconds, a.MaxTokens, a.TokenParameter}}
+	return Public{ids, c.PanelURL, PublicAI{a.AllowInsecureHTTP, a.Enabled, a.BaseURL, a.Model, a.APIKey != "", a.TimeoutSeconds, a.MaxTokens, a.TokenParameter}}
 }
 func (c Config) Validate() error {
 	if len(c.SuperAdmins) > 100 {
@@ -69,6 +72,9 @@ func (c Config) Validate() error {
 	a := c.AI
 	if !validURL(a.BaseURL) || len(a.BaseURL) > 2048 {
 		return errors.New("AI Base URL 不正确")
+	}
+	if a.Enabled && strings.HasPrefix(strings.ToLower(a.BaseURL), "http://") && !a.AllowInsecureHTTP {
+		return errors.New("AI 接口必须使用 HTTPS；受信任的本机或内网 HTTP 接口需显式开启允许 HTTP")
 	}
 	if len(a.APIKey) > 4096 || strings.ContainsAny(a.APIKey, "\r\n") || len(a.Model) > 255 {
 		return errors.New("AI 密钥或模型格式不正确")
@@ -116,8 +122,16 @@ func New(ctx context.Context, repo Repository, master string, defaults Config) (
 	m := &Manager{repo: repo, aead: aead}
 	b, e := repo.SystemSettings(ctx)
 	if e == nil {
+		allowHTTP := defaults.AI.AllowInsecureHTTP
 		if defaults, e = m.decrypt(b); e != nil {
 			return nil, errors.New("系统配置解密失败，请检查 SETTINGS_ENCRYPTION_KEY")
+		}
+		if allowHTTP {
+			defaults.AI.AllowInsecureHTTP = true
+		}
+		if defaults.AI.Enabled && strings.HasPrefix(strings.ToLower(defaults.AI.BaseURL), "http://") && !defaults.AI.AllowInsecureHTTP {
+			defaults.AI.Enabled = false
+			slog.Warn("HTTP AI provider disabled; explicitly allow trusted local HTTP or configure HTTPS in panel")
 		}
 	} else if !errors.Is(e, sql.ErrNoRows) {
 		return nil, e
@@ -168,6 +182,17 @@ func (m *Manager) Save(ctx context.Context, next Config, clearKey bool) error {
 	m.current.Store(&next)
 	return nil
 }
+
+// Serialize credential issuance with administrator removal to prevent resurrection.
+func (m *Manager) WithAdmin(id int64, write func() error) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.IsAdmin(id) {
+		return errors.New("管理员已被移除")
+	}
+	return write()
+}
+
 func (m *Manager) encrypt(c Config) (string, error) {
 	b, e := json.Marshal(c)
 	if e != nil {

@@ -19,6 +19,7 @@ import (
 	"tgguard/internal/config"
 	"tgguard/internal/domain"
 	"tgguard/internal/service"
+	"tgguard/internal/store"
 )
 
 type Server struct {
@@ -43,6 +44,8 @@ func (s *Server) Handler() http.Handler {
 	}
 	admin := http.NewServeMux()
 	admin.HandleFunc("POST /api/v1/panel-ticket", s.ticket)
+	admin.HandleFunc("POST /api/v1/admin-credentials", s.adminCredential)
+	admin.HandleFunc("POST /api/v1/sessions/revoke", s.revokeSessions)
 	admin.HandleFunc("GET /api/v1/system", s.system)
 	admin.HandleFunc("PUT /api/v1/system", s.system)
 	admin.HandleFunc("POST /api/v1/system/test-ai", s.testAI)
@@ -118,6 +121,10 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			respond(w, 403, map[string]string{"error": "cross-origin writes forbidden"})
 			return
 		}
+		if !bearer {
+			ctx := context.WithValue(r.Context(), sessionEpochKey{}, session.Epoch)
+			r = r.WithContext(store.WithAuditActor(context.WithValue(ctx, actorKey{}, session.Actor), session.Actor))
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -135,10 +142,15 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	code, status := 200, "ready"
+	recovery, e := s.Service.Store.RecoveryHealth(ctx)
+	if e != nil {
+		respond(w, 503, map[string]string{"status": "unavailable"})
+		return
+	}
 	if !ok || queue["oldest_pending_seconds"].(int64) >= 300 {
 		code, status = 503, "unavailable"
 	}
-	respond(w, code, map[string]any{"status": status, "telegram": health, "queue": queue})
+	respond(w, code, map[string]any{"status": status, "telegram": health, "queue": queue, "recovery": recovery})
 }
 func (s *Server) webhook(w http.ResponseWriter, r *http.Request) {
 	if !SecretEqual(r.Header.Get("X-Telegram-Bot-Api-Secret-Token"), s.Config.WebhookSecret) {
@@ -206,8 +218,8 @@ func cursor(r *http.Request) int64 {
 	}
 	return n
 }
-func (s *Server) rows(w http.ResponseWriter, r *http.Request, q string, args ...any) {
-	rows, e := s.Service.Store.Rows(r.Context(), q, args...)
+func (s *Server) rows(w http.ResponseWriter, r *http.Request, q store.View, args ...any) {
+	rows, e := s.Service.Store.View(r.Context(), q, args...)
 	if e != nil {
 		apiError(w, e)
 		return
@@ -215,10 +227,10 @@ func (s *Server) rows(w http.ResponseWriter, r *http.Request, q string, args ...
 	respond(w, 200, rows)
 }
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
-	s.rows(w, r, `SELECT (SELECT COUNT(*) FROM bot_groups WHERE active=TRUE) AS groups_count,(SELECT COUNT(*) FROM users) AS users_count,(SELECT COUNT(*) FROM moderation_logs WHERE created_at>=UTC_DATE()) AS today_reviews,(SELECT COUNT(*) FROM punishments WHERE created_at>=UTC_DATE() AND deleted=TRUE) AS today_deletes,(SELECT COUNT(*) FROM ai_usage_logs WHERE created_at>=UTC_DATE() AND cached=FALSE) AS today_ai_calls,(SELECT COALESCE(SUM(input_tokens+output_tokens),0) FROM ai_usage_logs WHERE created_at>=UTC_DATE()) AS today_ai_tokens,(SELECT COUNT(*) FROM update_inbox WHERE status='dead') AS dead_updates`)
+	s.rows(w, r, store.ViewDashboard)
 }
 func (s *Server) groups(w http.ResponseWriter, r *http.Request) {
-	s.rows(w, r, "SELECT chat_id,title,active,authorization,authorization_reason,created_at,updated_at FROM bot_groups WHERE chat_id<? ORDER BY chat_id DESC LIMIT 100", cursor(r))
+	s.rows(w, r, store.ViewGroups, cursor(r))
 }
 func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 	chat, ok := s.groupID(w, r, false)
@@ -243,7 +255,7 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 		respond(w, 400, map[string]string{"error": e.Error()})
 		return
 	}
-	if e = s.Service.Store.ChangeSettings(r.Context(), chat, 0, func(v *domain.Settings) error { return domain.ApplySettingsPatch(v, raw) }); e != nil {
+	if e = s.Service.Store.ChangeSettings(r.Context(), chat, actor(r), func(v *domain.Settings) error { return domain.ApplySettingsPatch(v, raw) }); e != nil {
 		apiError(w, e)
 		return
 	}
@@ -279,7 +291,7 @@ func (s *Server) keywords(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if r.Method == "DELETE" {
-		if e := s.Service.Store.DeleteKeyword(r.Context(), chat, id, 0); e != nil {
+		if e := s.Service.Store.DeleteKeyword(r.Context(), chat, id, actor(r)); e != nil {
 			apiError(w, e)
 			return
 		}
@@ -296,7 +308,7 @@ func (s *Server) keywords(w http.ResponseWriter, r *http.Request) {
 		respond(w, 400, map[string]string{"error": e.Error()})
 		return
 	}
-	id, e := s.Service.Store.SaveKeyword(r.Context(), k, 0)
+	id, e := s.Service.Store.SaveKeyword(r.Context(), k, actor(r))
 	if e != nil {
 		apiError(w, e)
 		return
@@ -309,7 +321,7 @@ func (s *Server) lists(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == "GET" {
-		s.rows(w, r, "SELECT id,chat_id,user_id,username,kind,reason,expires_at FROM list_entries WHERE chat_id=? AND id<? ORDER BY id DESC LIMIT 100", chat, cursor(r))
+		s.rows(w, r, store.ViewLists, chat, cursor(r))
 		return
 	}
 	var l domain.ListEntry
@@ -322,7 +334,7 @@ func (s *Server) lists(w http.ResponseWriter, r *http.Request) {
 		respond(w, 400, map[string]string{"error": e.Error()})
 		return
 	}
-	if e := s.Service.Store.SaveList(r.Context(), l, 0, r.Method == "DELETE"); e != nil {
+	if e := s.Service.Store.SaveList(r.Context(), l, actor(r), r.Method == "DELETE"); e != nil {
 		apiError(w, e)
 		return
 	}
@@ -333,7 +345,7 @@ func (s *Server) logs(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.rows(w, r, "SELECT id,user_id,message_id,message_text,risk_score,matched_rules,ai_result,decision,source,created_at FROM moderation_logs WHERE chat_id=? AND id<? ORDER BY id DESC LIMIT 100", chat, cursor(r))
+	s.rows(w, r, store.ViewLogs, chat, cursor(r))
 }
 func (s *Server) users(w http.ResponseWriter, r *http.Request) {
 	chat, ok := s.groupID(w, r, false)
@@ -346,28 +358,28 @@ func (s *Server) users(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pattern := "%" + query + "%"
-	s.rows(w, r, "SELECT u.user_id,u.username,u.display_name,m.role,m.joined_at,m.verified_at,m.left_at,m.message_count FROM group_members m JOIN users u ON u.user_id=m.user_id WHERE m.chat_id=? AND u.user_id<? AND (CAST(u.user_id AS CHAR)=? OR u.username LIKE ? OR u.display_name LIKE ?) ORDER BY u.user_id DESC LIMIT 100", chat, cursor(r), query, pattern, pattern)
+	s.rows(w, r, store.ViewUsers, chat, cursor(r), query, pattern, pattern)
 }
 func (s *Server) punishments(w http.ResponseWriter, r *http.Request) {
 	chat, ok := s.groupID(w, r, false)
 	if !ok {
 		return
 	}
-	s.rows(w, r, "SELECT id,user_id,message_id,decision,source,actor_id,status,deleted,acted,last_error,created_at FROM punishments WHERE chat_id=? AND id<? ORDER BY id DESC LIMIT 100", chat, cursor(r))
+	s.rows(w, r, store.ViewPunishments, chat, cursor(r))
 }
 func (s *Server) verifications(w http.ResponseWriter, r *http.Request) {
 	chat, ok := s.groupID(w, r, false)
 	if !ok {
 		return
 	}
-	s.rows(w, r, "SELECT user_id,status,challenge_type,attempts,expires_at,verified_at,created_at FROM verification_sessions WHERE chat_id=? ORDER BY created_at DESC LIMIT 100", chat)
+	s.rows(w, r, store.ViewVerifications, chat)
 }
 func (s *Server) audits(w http.ResponseWriter, r *http.Request) {
 	chat, ok := s.groupID(w, r, false)
 	if !ok {
 		return
 	}
-	s.rows(w, r, "SELECT id,actor_id,action,old_value,new_value,created_at FROM admin_audits WHERE chat_id=? AND id<? ORDER BY id DESC LIMIT 100", chat, cursor(r))
+	s.rows(w, r, store.ViewAudits, chat, cursor(r))
 }
 func (s *Server) feedback(w http.ResponseWriter, r *http.Request) {
 	chat, ok := s.groupID(w, r, false)
@@ -385,14 +397,14 @@ func (s *Server) feedback(w http.ResponseWriter, r *http.Request) {
 		respond(w, 400, map[string]string{"error": "invalid feedback"})
 		return
 	}
-	if e := s.Service.Store.Feedback(r.Context(), chat, body.LogID, 0, body.Note); e != nil {
+	if e := s.Service.Store.Feedback(r.Context(), chat, body.LogID, actor(r), body.Note); e != nil {
 		apiError(w, e)
 		return
 	}
 	respond(w, 200, map[string]bool{"ok": true})
 }
 func (s *Server) dead(w http.ResponseWriter, r *http.Request) {
-	s.rows(w, r, "SELECT update_id,partition_id,attempts,last_error,created_at FROM update_inbox WHERE status='dead' AND update_id<? ORDER BY update_id DESC LIMIT 100", cursor(r))
+	s.rows(w, r, store.ViewDeadUpdates, cursor(r))
 }
 
 func (s *Server) groupID(w http.ResponseWriter, r *http.Request, global bool) (int64, bool) {

@@ -58,6 +58,17 @@ test('inline confirmation cancellation and duplicate submission are safe',async(
 });
 test('web workflows never depend on native confirmation dialogs',()=>{const s=fs.readFileSync(path.join(__dirname,'../internal/api/web/app.js'),'utf8');assert.doesNotMatch(s,/\b(?:prompt|confirm)\s*\(/)});
 
+test('credential changes clear stale secrets and serialize issuance and revocation',async()=>{
+ const h=setup(),field={value:'old-secret'};h.get('#credential-result').querySelector=()=>field;h.get('#credential-form').elements={user_id:{value:'42'}};
+ vm.runInContext("bindCredentials();api=async(path,options)=>{calls.push({path,options});return new Promise(resolve=>{release=resolve})}",h.ctx);
+ const event={preventDefault(){},submitter:h.button};const first=h.get('#credential-form').onsubmit(event);
+ assert.equal(field.value,'');assert.equal(h.get('#credential-result').hidden,true);
+ await h.get('#revoke-credential').onclick({target:h.get('#revoke-credential')});assert.equal(h.ctx.calls.length,1);
+ h.ctx.release({token:'new-secret'});await first;assert.equal(field.value,'new-secret');assert.equal(h.get('#credential-result').hidden,false);
+ vm.runInContext("api=async(path,options)=>{calls.push({path,options});throw Error('failure')}",h.ctx);
+ await h.get('#revoke-credential').onclick({target:h.get('#revoke-credential')});assert.equal(field.value,'');assert.equal(h.get('#credential-result').hidden,true);assert.equal(h.ctx.calls[1].options.body.revoke,true);
+});
+
 test('rule workspace exposes saved policy test and readable filters',()=>{const h=setup();const html=vm.runInContext("ruleLab({moderation_enabled:true,ai_enabled:true,ai_threshold:50,direct_threshold:80},[{pattern:'test'}])",h.ctx);for(const text of ['rule-lab-form','50–79','不会发送消息','足球红包引流','正常招聘','new_member'])assert.ok(html.includes(text),text)});
 
 function labSetup(){const h=setup();const field=value=>({value,checked:false,focus(){}});h.get('#rule-lab-form').elements={text:field('原文'),forward_source:field('广告来源'),quote:field('广告引用'),new_member:field('')};h.sample={dataset:{adSample:'公司招聘 Go 工程师'}};h.ctx.document.querySelectorAll=q=>q==='[data-ad-sample]'?[h.sample]:[];vm.runInContext("bindRuleLab('-1001')",h.ctx);h.submitLab=()=>h.get('#rule-lab-form').onsubmit({preventDefault(){},submitter:h.get('#lab-submit')});return h}

@@ -1,0 +1,23 @@
+# Requires Docker Compose >= 2.24.4 (the installer installs the current plugin).
+services:
+  app:
+    ports: !override ["127.0.0.1:8080:8080"]
+  https:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      PANEL_DOMAIN: ${PANEL_DOMAIN:?Set PANEL_DOMAIN to your DNS domain}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [backend]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  caddy_data:
+  caddy_config:

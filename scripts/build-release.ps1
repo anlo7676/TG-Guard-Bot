@@ -1,7 +1,7 @@
 #requires -Version 7.0
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath (Split-Path -Parent $PSScriptRoot)
-if ((go version) -notmatch 'go1\.26\.2\s') { throw 'This project requires Go 1.26.2.' }
+if ((go version) -notmatch 'go1\.26\.7\s') { throw 'This project requires Go 1.26.7.' }
 $previous = @{}
 foreach ($key in @('CGO_ENABLED','GOOS','GOARCH','GOCACHE')) { $previous[$key] = [Environment]::GetEnvironmentVariable($key, 'Process') }
 try {

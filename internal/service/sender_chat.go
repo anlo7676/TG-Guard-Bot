@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
 	"strconv"
 	"tgguard/internal/domain"
 	"tgguard/internal/rules"
@@ -51,9 +52,7 @@ func (s *Service) ModerateSenderChat(ctx context.Context, update int64, m domain
 	}
 	var ai *domain.AIResult
 	if !risk.Spam && settings.AIEnabled && s.AI != nil && risk.Score >= settings.AIThreshold && risk.Score < settings.DirectThreshold {
-		if result, err := s.AI.Review(ctx, n, risk); err == nil {
-			ai = &result
-		}
+		ai = s.reviewAI(ctx, n, &risk, "channel", key)
 	}
 	decision := rules.Decide(risk, ai, settings, 0, false)
 	if decision.Action != "allow" && decision.Action != "shadow_log" {
@@ -75,7 +74,7 @@ func (s *Service) punishSenderChat(ctx context.Context, l store.Log, p store.Pun
 		return fmt.Errorf("频道身份不支持用户禁言或封禁，请删除消息或在 Telegram 管理频道发言权限")
 	}
 	if !p.Deleted && (p.Decision.Delete || p.Decision.Action == "delete") {
-		if e := s.Bot.Delete(ctx, l.ChatID, l.MessageID); e != nil {
+		if e := s.executor().Delete(ctx, l.ChatID, l.MessageID); e != nil {
 			return e
 		}
 		if e := s.Store.PunishmentStep(ctx, l.EventKey, "deleted"); e != nil {

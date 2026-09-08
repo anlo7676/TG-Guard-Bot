@@ -1,6 +1,8 @@
 # TG Guard Bot
 
-基于 **Go 1.26.2 + MySQL 8.4 + Redis 8.6.2** 的 Telegram 智能群管机器人。以需求说明书第六十章的第一版 MVP 为交付范围，遵循“规则优先、AI 辅助、人工可干预”。
+v1.8.0 增加独立后台管理员凭据、会话撤销、验证接管恢复和稳定版发布门禁，工具链升级为 Go 1.26.7。升级前请阅读 [安全与升级说明](docs/security-and-upgrade.md)，其中包含 HTTPS 配置、HTTP 模型兼容和数据保留规则。
+
+基于 **Go 1.26.7 + MySQL 8.4 + Redis 8.6.2** 的 Telegram 智能群管机器人。以需求说明书第六十章的第一版 MVP 为交付范围，遵循“规则优先、AI 辅助、人工可干预”。
 
 本版包含机器人、中文可视化 Web 后台、管理 API、数据库迁移、Docker Compose、测试和 CI 配置。图片／网页 CAPTCHA、OCR／二维码识别、计费及 SaaS 多租户属于后续阶段。
 
@@ -71,7 +73,7 @@ pwsh -File scripts/deploy.ps1
 
 **查看日志：** `docker compose logs --tail 100 app`。**停止：** `docker compose stop`。启动失败可修正配置后重试。
 
-Compose 使用 Go 1.26.2、MySQL 8.4、Redis 8.6.2，数据库迁移自动执行。MySQL 和 Redis 不向宿主机暴露端口，数据保存在 Docker 命名卷中。
+Compose 使用 Go 1.26.7、MySQL 8.4、Redis 8.6.2，数据库迁移自动执行。MySQL 和 Redis 不向宿主机暴露端口，数据保存在 Docker 命名卷中。
 
 ### 本机运行与更新
 
@@ -85,7 +87,7 @@ pwsh -File scripts/open-panel.ps1
 
 ### 本机 Go 开发
 
-提前安装 Go 1.26.2，并准备运行中的 MySQL 8.4 和 Redis 8.6.2。在 MySQL 创建 `tgguard` 数据库及对应账号，赋予该数据库内建表、索引和读写权限。修改 `.env` 中的 `MYSQL_DSN`、`REDIS_ADDR` 指向实际服务。
+提前安装 Go 1.26.7，并准备运行中的 MySQL 8.4 和 Redis 8.6.2。在 MySQL 创建 `tgguard` 数据库及对应账号，赋予该数据库内建表、索引和读写权限。修改 `.env` 中的 `MYSQL_DSN`、`REDIS_ADDR` 指向实际服务。
 
 ```powershell
 Copy-Item .env.example .env
@@ -238,7 +240,7 @@ scripts/               Windows UTF-8 运行和测试脚本
 
 默认 Dockerfile 从 GitHub Release 下载当前固定版本的 Linux amd64 / arm64 程序，校验 SHA-256 后装入 Alpine 运行镜像。服务器无需下载 Go 工具链或编译源码；MySQL、Redis 和原数据卷不变。下载失败会停止构建，不会自动退回耗时的源码编译。
 
-本地执行 `pwsh -File scripts/build-release.ps1` 可交叉编译两种架构，产物位于 Git 忽略的 `dist/`。推送版本标签后，Release 工作流使用 Go 1.26.2 测试、构建并上传程序和校验文件。二进制保存在 Release 附件中，不进入 Git 源码历史。
+本地执行 `pwsh -File scripts/build-release.ps1` 可交叉编译两种架构，产物位于 Git 忽略的 `dist/`。推送版本标签后，Release 工作流使用 Go 1.26.7 测试、构建并上传程序和校验文件。二进制保存在 Release 附件中，不进入 Git 源码历史。
 
 源码构建入口保留为 `docker build -f Dockerfile.source -t tgguard:source .`。维护者发布新版时须同步应用版本和 Dockerfile 的 RELEASE_VERSION，再推送对应版本标签；普通用户重复执行一行安装命令即可更新。
 

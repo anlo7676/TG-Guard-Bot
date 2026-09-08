@@ -35,6 +35,10 @@
 - `GET /auth/session`：返回当前会话的 CSRF Token。
 - `POST /auth/logout`：要求 Cookie 和 `X-CSRF-Token`，撤销会话。
 - `POST /api/v1/panel-ticket`：已鉴权后台管理员获取 60 秒一次性票据；`POST /auth/ticket` 用 `{"ticket":"票据"}` 消费并建立会话。
+- `POST /api/v1/admin-credentials`：恢复凭据用户提交 `{"user_id":123}` 生成或更换独立登录密钥；提交 `{"user_id":123,"revoke":true}` 撤销。新密钥只显示一次。
+- `POST /api/v1/sessions/revoke`：恢复凭据用户撤销全部旧会话和票据。更换恢复密钥、撤销独立凭据或移除管理员同样阻止旧授权继续使用。
+
+独立后台登录密钥同样通过 `/auth/login` 的 `token` 字段登录，写操作记录对应 Telegram 管理员 ID；全局恢复凭据记为 0。AI 字段新增 `allow_insecure_http`，默认 false，仅供显式允许的受信本机或内网服务。
 
 首页和静态资源公开可读，业务数据需要鉴权。登录每 IP 每 5 分钟最多 10 次；写操作拒绝跨 Origin。前端不在 localStorage 保存管理凭据。HTTPS 反向代理需保留 Host，并设置匹配的 HTTPS `panel_url`。
 

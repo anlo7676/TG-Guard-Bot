@@ -89,7 +89,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 			if strings.TrimSpace(stmt) == "" {
 				continue
 			}
-			if _, e = c.ExecContext(ctx, stmt); e != nil {
+			if e = executeMigration(ctx, c, f.Name(), stmt); e != nil {
 				return fmt.Errorf("migration %s: %w", f.Name(), e)
 			}
 		}
@@ -153,6 +153,9 @@ func (s *Store) Settings(ctx context.Context, chat int64) (domain.Settings, erro
 	return v, e
 }
 func audit(ctx context.Context, tx *sql.Tx, chat, actor int64, action string, old, new any) error {
+	if actor == 0 {
+		actor, _ = ctx.Value(auditActorKey{}).(int64)
+	}
 	_, e := tx.ExecContext(ctx, "INSERT INTO admin_audits(chat_id,actor_id,action,old_value,new_value) VALUES(?,?,?,?,?)", chat, actor, action, JSON(old), JSON(new))
 	return e
 }
@@ -418,7 +421,7 @@ func (s *Store) PunishmentStep(ctx context.Context, key, step string) error {
 	return e
 }
 func (s *Store) PunishmentError(ctx context.Context, key string, err error) error {
-	_, e := s.DB.ExecContext(ctx, "UPDATE punishments SET last_error=? WHERE event_key=?", clip(err.Error(), 500), key)
+	_, e := s.DB.ExecContext(ctx, "UPDATE punishments SET last_error=?,updated_at=UTC_TIMESTAMP(6) WHERE event_key=?", clip(err.Error(), 500), key)
 	return e
 }
 func (s *Store) AIUsage(ctx context.Context, chat int64, model string, in, out int, ms int64, cached bool, result string) error {

@@ -20,6 +20,7 @@ import (
 	"tgguard/internal/config"
 	"tgguard/internal/domain"
 	"tgguard/internal/service"
+	"tgguard/internal/settings"
 	"tgguard/internal/state"
 	"tgguard/internal/store"
 	"tgguard/internal/telegram"
@@ -67,6 +68,7 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 	}{}
 	mid := int64(500)
 	failAuditWrong := false
+	restrictionFailure := 0
 	failReviewNoticeOnce := false
 	failAdminLookupOnce := false
 	failNextWelcome := false
@@ -90,6 +92,10 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		if failReviewNoticeOnce && method == "sendMessage" && strings.Contains(fmt.Sprint(in["text"]), "累计违规超过 3 次") {
 			failReviewNoticeOnce = false
 			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": 500, "description": "temporary notice failure"})
+			return
+		}
+		if restrictionFailure != 0 && method == "restrictChatMember" && fmt.Sprint(in["user_id"]) == "901998" {
+			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": restrictionFailure, "description": "simulated restriction failure"})
 			return
 		}
 		if failAuditWrong && method == "sendMessage" {
@@ -1102,13 +1108,13 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		if e = svc.StartVerification(ctx, m, v.Token); e != nil {
 			t.Fatal(e)
 		}
-		if !strings.Contains(fmt.Sprint(lastSend()["text"]), "已取消") {
+		if !strings.Contains(fmt.Sprint(lastSend()["text"]), "已结束或由管理员接管") {
 			t.Fatal("cancelled link misreported")
 		}
 		if e = svc.AnswerVerification(ctx, v.Token, uid, "25"); e != nil {
 			t.Fatal(e)
 		}
-		if !strings.Contains(fmt.Sprint(lastSend()["text"]), "已取消") {
+		if !strings.Contains(fmt.Sprint(lastSend()["text"]), "已结束或由管理员接管") {
 			t.Fatal("cancelled answer misreported")
 		}
 		before := count("sendMessage")
@@ -1511,6 +1517,128 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			t.Fatal(e)
 		}
 		check(200)
+	})
+	t.Run("failed and uncertain punishment takeover", func(t *testing.T) {
+		token := "takeover_regression"
+		v := store.Verification{Token: token, ChatID: other.ID, UserID: 901998, Type: "math", Question: "1+1", AnswerHash: store.HashAnswer(token, "2"), FailAction: "kick", ExpiresAt: time.Now().Add(time.Hour)}
+		if e := db.CreateVerification(ctx, v); e != nil {
+			t.Fatal(e)
+		}
+		l := store.Log{EventKey: "takeover-permanent", ChatID: v.ChatID, UserID: v.UserID, Source: "manual", Decision: domain.Decision{Action: "unmute"}}
+		mu.Lock()
+		restrictionFailure = 403
+		mu.Unlock()
+		if e := svc.Punish(ctx, l, 42); e == nil {
+			t.Fatal("expected failure")
+		}
+		current, e := db.Verification(ctx, token)
+		if e != nil || current.Status != "pending" {
+			t.Fatal("verification lost", current, e)
+		}
+		busy, e := db.VerificationTakenOver(ctx, v.ChatID, v.UserID)
+		if e != nil || busy {
+			t.Fatal("definite failure blocks verification", e)
+		}
+		l.EventKey = "takeover-uncertain"
+		mu.Lock()
+		restrictionFailure = 500
+		mu.Unlock()
+		if e := svc.Punish(ctx, l, 42); e == nil {
+			t.Fatal("expected uncertain failure")
+		}
+		busy, e = db.VerificationTakenOver(ctx, v.ChatID, v.UserID)
+		if e != nil || !busy {
+			t.Fatal("uncertain result must retain takeover intent", e)
+		}
+		if e := svc.AnswerVerification(ctx, token, v.UserID, "2", "during-takeover"); e != nil {
+			t.Fatal(e)
+		}
+		current, e = db.Verification(ctx, token)
+		if e != nil || current.Status != "pending" {
+			t.Fatal("verification bypassed takeover", current, e)
+		}
+		mu.Lock()
+		restrictionFailure = 0
+		mu.Unlock()
+		if e := svc.SweepTakeovers(ctx); e != nil {
+			t.Fatal(e)
+		}
+		current, e = db.Verification(ctx, token)
+		if e != nil || current.Status != "cancelled" {
+			t.Fatal("recovery failed", current, e)
+		}
+	})
+	t.Run("historical partial migration recovery", func(t *testing.T) {
+		if _, e := db.DB.ExecContext(ctx, "DELETE FROM schema_migrations WHERE version IN ('003_keyword_buttons.sql','004_group_authorization.sql','005_welcome.sql','006_verification_notices.sql')"); e != nil {
+			t.Fatal(e)
+		}
+		if e := db.Migrate(ctx); e != nil {
+			t.Fatal("partial DDL not recoverable", e)
+		}
+	})
+	t.Run("individual web credential audit and revocation", func(t *testing.T) {
+		manager, e := settings.New(ctx, db, strings.Repeat("m", 32), settings.Config{SuperAdmins: []int64{42}, AI: settings.AI{BaseURL: "https://example.com/v1", TimeoutSeconds: 12, MaxTokens: 500, TokenParameter: "max_completion_tokens"}})
+		if e != nil {
+			t.Fatal(e)
+		}
+		svc.Runtime = manager
+		defer func() { svc.Runtime = nil }()
+		master := strings.Repeat("r", 32)
+		web := (&api.Server{Service: svc, Config: config.Config{AdminToken: master}}).Handler()
+		call := func(method, path, body string, cookie *http.Cookie, csrf string, root bool) *httptest.ResponseRecorder {
+			r := httptest.NewRequest(method, path, strings.NewReader(body))
+			if root {
+				r.Header.Set("Authorization", "Bearer "+master)
+			}
+			if cookie != nil {
+				r.AddCookie(cookie)
+				r.Header.Set("X-CSRF-Token", csrf)
+			}
+			w := httptest.NewRecorder()
+			web.ServeHTTP(w, r)
+			return w
+		}
+		w := call("POST", "/api/v1/admin-credentials", `{"user_id":42}`, nil, "", true)
+		if w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		var issued map[string]any
+		json.Unmarshal(w.Body.Bytes(), &issued)
+		token := issued["token"].(string)
+		w = call("POST", "/auth/login", store.JSON(map[string]string{"token": token}), nil, "", false)
+		if w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		cookie := w.Result().Cookies()[0]
+		var session map[string]string
+		json.Unmarshal(w.Body.Bytes(), &session)
+		c := manager.Snapshot()
+		c.PanelURL = "https://panel.example.com"
+		w = call("PUT", "/api/v1/system", store.JSON(c), cookie, session["csrf"], false)
+		if w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		var actor int64
+		if e := db.DB.QueryRowContext(ctx, "SELECT actor_id FROM admin_audits WHERE action='system.settings' ORDER BY id DESC LIMIT 1").Scan(&actor); e != nil || actor != 42 {
+			t.Fatal("missing named actor", actor, e)
+		}
+		c.SuperAdmins = []int64{}
+		w = call("PUT", "/api/v1/system", store.JSON(c), nil, "", true)
+		if w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		w = call("POST", "/api/v1/panel-ticket", "{}", cookie, session["csrf"], false)
+		if w.Code != 401 {
+			t.Fatal("removed admin session remains active", w.Code)
+		}
+		c.SuperAdmins = []int64{42}
+		if e = manager.Save(ctx, c, false); e != nil {
+			t.Fatal(e)
+		}
+		w = call("POST", "/auth/login", store.JSON(map[string]string{"token": token}), nil, "", false)
+		if w.Code != 401 {
+			t.Fatal("old credential resurrected", w.Code)
+		}
 	})
 	t.Run("expired menu and revoked permission", func(t *testing.T) {
 		m := domain.Message{Chat: domain.Chat{ID: 42, Type: "private"}, From: &domain.User{ID: 42}}

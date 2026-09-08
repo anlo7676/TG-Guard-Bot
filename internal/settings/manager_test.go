@@ -110,3 +110,20 @@ func TestSettingsValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTPRequiresExplicitConsent(t *testing.T) {
+	c := defaults()
+	c.AI.Enabled = true
+	c.AI.Model = "local"
+	c.AI.APIKey = "test"
+	for _, address := range []string{"http://127.0.0.1:1234/v1", "HTTP://127.0.0.1:1234/v1"} {
+		c.AI.BaseURL = address
+		if c.Validate() == nil {
+			t.Fatal("HTTP accepted without consent", address)
+		}
+	}
+	c.AI.AllowInsecureHTTP = true
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}

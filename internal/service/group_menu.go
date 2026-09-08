@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"tgguard/internal/domain"
+	"tgguard/internal/store"
 	"time"
 )
 
@@ -185,7 +186,7 @@ func (s *Service) GroupMenu(ctx context.Context, m domain.Message, data string) 
 				before = n
 			}
 		}
-		entries, e := s.Store.Rows(ctx, "SELECT id,user_id,username FROM list_entries WHERE chat_id=? AND kind=? AND id<? ORDER BY id DESC LIMIT 9", chat, section, before)
+		entries, e := s.Store.View(ctx, store.ViewListMenu, chat, section, before)
 		if e != nil {
 			return e
 		}

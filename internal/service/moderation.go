@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"tgguard/internal/i18n"
 	"tgguard/internal/rules"
 	"tgguard/internal/store"
+	"tgguard/internal/telegram"
 )
 
 func (s *Service) Moderate(ctx context.Context, update int64, m domain.Message) error {
@@ -72,12 +74,7 @@ func (s *Service) Moderate(ctx context.Context, update int64, m domain.Message) 
 			}
 		}
 		if settings.AIEnabled && s.AI != nil && !l.Risk.Spam && l.Risk.Score >= settings.AIThreshold && l.Risk.Score < settings.DirectThreshold {
-			a, e := s.AI.Review(ctx, n, l.Risk)
-			if e != nil {
-				slog.Warn("AI review unavailable; local decision only", "chat_id", n.ChatID, "error", e)
-			} else {
-				l.AI = &a
-			}
+			l.AI = s.reviewAI(ctx, n, &l.Risk, "automatic", key)
 		}
 		count, e := s.Store.ViolationCount(ctx, n.ChatID, n.UserID)
 		if e != nil {
@@ -123,10 +120,21 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 	if p.Status == "done" || p.Status == "skipped" {
 		return nil
 	}
+	if p.Status == "failed" {
+		return fmt.Errorf("处罚已终止，请修复权限后重新发起操作")
+	}
 
 	defer func() {
 		if err != nil {
-			if e := s.Store.PunishmentError(ctx, l.EventKey, err); e != nil {
+			auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+			defer cancel()
+			var te *telegram.APIError
+			if errors.As(err, &te) && (te.Code == 400 || te.Code == 403) {
+				if e := s.Store.FailPunishment(auditCtx, l.EventKey); e != nil {
+					slog.Error("punishment termination failed", "event_key", l.EventKey, "error", e)
+				}
+			}
+			if e := s.Store.PunishmentError(auditCtx, l.EventKey, err); e != nil {
 				slog.Error("punishment error audit failed", "error", e)
 			}
 		}
@@ -145,7 +153,7 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 	if protected && p.Decision.Action != "unmute" && p.Decision.Action != "unban" {
 		return s.Store.PunishmentStep(ctx, l.EventKey, "skipped")
 	}
-	if l.Source == "automatic" {
+	if l.Source == "automatic" || l.Source == "manual" {
 		resolved, e := s.Store.NewerManualResolution(ctx, l.ChatID, l.UserID, p.CreatedAt)
 		if e != nil {
 			return e
@@ -156,7 +164,7 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 	}
 	d := p.Decision
 	if d.Delete && !p.Deleted && l.MessageID > 0 {
-		if e = s.Bot.Delete(ctx, l.ChatID, l.MessageID); e != nil {
+		if e = s.executor().Delete(ctx, l.ChatID, l.MessageID); e != nil {
 			return e
 		}
 		if e = s.Store.PunishmentStep(ctx, l.EventKey, "deleted"); e != nil {
@@ -164,15 +172,10 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 		}
 	}
 	if !p.Acted {
-		if d.Action == "mute" || d.Action == "ban" || d.Action == "kick" || d.Action == "unmute" {
-			if e = s.Store.CancelVerification(ctx, l.ChatID, l.UserID); e != nil {
-				return e
-			}
-		}
 		switch d.Action {
 		case "delete":
 			if !d.Delete && l.MessageID > 0 {
-				e = s.Bot.Delete(ctx, l.ChatID, l.MessageID)
+				e = s.executor().Delete(ctx, l.ChatID, l.MessageID)
 			}
 		case "warn":
 			settings, se := s.Store.Settings(ctx, l.ChatID)
@@ -187,28 +190,38 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 			e = s.Bot.Call(ctx, "sendMessage", map[string]any{"chat_id": l.ChatID, "text": warningNotice(l, u.User, settings, count), "parse_mode": "HTML"}, nil)
 		case "mute":
 			if d.Reason == "local_ad_review" {
-				e = s.Bot.Restrict(ctx, l.ChatID, l.UserID, 0)
+				e = s.executor().Restrict(ctx, l.ChatID, l.UserID, 0)
 				break
 			}
 			seconds := int(time.Until(p.CreatedAt.Add(time.Duration(d.Duration) * time.Second)).Seconds())
 			if seconds > 0 {
-				e = s.Bot.Restrict(ctx, l.ChatID, l.UserID, max(30, seconds))
+				e = s.executor().Restrict(ctx, l.ChatID, l.UserID, max(30, seconds))
+			} else {
+				if e = s.Store.FailPunishment(ctx, l.EventKey); e != nil {
+					return e
+				}
+				return fmt.Errorf("禁言计划已过期，请重新操作")
 			}
 		case "ban":
-			e = s.Bot.Ban(ctx, l.ChatID, l.UserID)
+			e = s.executor().Ban(ctx, l.ChatID, l.UserID)
 		case "kick":
-			e = s.Bot.Kick(ctx, l.ChatID, l.UserID)
+			e = s.executor().Kick(ctx, l.ChatID, l.UserID)
 		case "unmute":
-			e = s.Bot.Restore(ctx, l.ChatID, l.UserID)
+			e = s.executor().Restore(ctx, l.ChatID, l.UserID)
 		case "unban":
-			e = s.Bot.Unban(ctx, l.ChatID, l.UserID)
+			e = s.executor().Unban(ctx, l.ChatID, l.UserID)
 		default:
 			return fmt.Errorf("unsupported punishment %q", d.Action)
 		}
 		if e != nil {
 			return e
 		}
-		if e = s.Store.PunishmentStep(ctx, l.EventKey, "acted"); e != nil {
+		if d.Action == "mute" || d.Action == "ban" || d.Action == "kick" || d.Action == "unmute" {
+			e = s.Store.CompleteTakeover(ctx, l)
+		} else {
+			e = s.Store.PunishmentStep(ctx, l.EventKey, "acted")
+		}
+		if e != nil {
 			return e
 		}
 	}

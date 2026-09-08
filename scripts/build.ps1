@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Push-Location -LiteralPath $projectRoot
 try {
-    if ((go version) -notmatch 'go1\.26\.2\s') { throw 'This project requires Go 1.26.2.' }
+    if ((go version) -notmatch 'go1\.26\.7\s') { throw 'This project requires Go 1.26.7.' }
     New-Item -ItemType Directory -Force bin,tmp/go-build | Out-Null
     $env:GOCACHE = Join-Path $projectRoot 'tmp/go-build'
     $sourceFiles = @('go.mod','go.sum') + @(Get-ChildItem -LiteralPath cmd,internal -Recurse -File | ForEach-Object { $_.FullName })

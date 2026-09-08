@@ -27,7 +27,7 @@ func (s *Store) MarkWelcomed(ctx context.Context, chat, user, message int64) err
 type WelcomeCleanup struct{ ChatID, MessageID int64 }
 
 func (s *Store) DueWelcomeCleanup(ctx context.Context) ([]WelcomeCleanup, error) {
-	rows, e := s.DB.QueryContext(ctx, "SELECT chat_id,message_id FROM welcome_cleanup WHERE done=FALSE AND next_attempt_at<=UTC_TIMESTAMP(6) ORDER BY next_attempt_at LIMIT 100")
+	rows, e := s.DB.QueryContext(ctx, "SELECT chat_id,message_id FROM (SELECT w.*,ROW_NUMBER() OVER(PARTITION BY chat_id ORDER BY next_attempt_at) AS recovery_position FROM welcome_cleanup w WHERE done=FALSE AND next_attempt_at<=UTC_TIMESTAMP(6)) due WHERE recovery_position<=2 ORDER BY next_attempt_at LIMIT 100")
 	if e != nil {
 		return nil, e
 	}
@@ -42,7 +42,11 @@ func (s *Store) DueWelcomeCleanup(ctx context.Context) ([]WelcomeCleanup, error)
 	}
 	return out, rows.Err()
 }
-func (s *Store) FinishWelcomeCleanup(ctx context.Context, item WelcomeCleanup, cause error) error {
+func (s *Store) FinishWelcomeCleanup(ctx context.Context, item WelcomeCleanup, cause error, terminal ...bool) error {
+	if cause != nil && len(terminal) > 0 && terminal[0] {
+		_, err := s.DB.ExecContext(ctx, "UPDATE welcome_cleanup SET done=TRUE,last_error=? WHERE chat_id=? AND message_id=?", clip(cause.Error(), 500), item.ChatID, item.MessageID)
+		return err
+	}
 	if cause == nil {
 		_, e := s.DB.ExecContext(ctx, "UPDATE welcome_cleanup SET done=TRUE,last_error='' WHERE chat_id=? AND message_id=?", item.ChatID, item.MessageID)
 		return e
