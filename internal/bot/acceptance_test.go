@@ -1941,8 +1941,8 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			}
 		}
 	})
-	t.Run("self verification restores only verification restrictions", func(t *testing.T) {
-		g := domain.Chat{ID: -10120, Type: "supergroup", Title: "Self verification"}
+	t.Run("self unmute supports all restrictions without welcome", func(t *testing.T) {
+		g := domain.Chat{ID: -10120, Type: "supergroup", Title: "Self unmute"}
 		if err := svc.Group(ctx, g); err != nil {
 			t.Fatal(err)
 		}
@@ -1950,80 +1950,97 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err := db.ChangeSettings(ctx, g.ID, 42, func(v *domain.Settings) error {
-			v.VerificationEnabled = true
+			v.VerificationEnabled = false
 			v.VerificationType = "button"
-			v.WelcomeEnabled = false
+			v.WelcomeEnabled = true
+			v.WelcomeText = "must not welcome self unmute"
 			return nil
 		}); err != nil {
 			t.Fatal(err)
 		}
-		create := func(uid int64, action string) store.Verification {
-			t.Helper()
-			u := domain.User{ID: uid}
+		for i, source := range []string{"unknown", "manual", "automatic"} {
+			uid := int64(99400 + i)
 			mu.Lock()
 			roles[uid] = "restricted"
 			mu.Unlock()
-			if err := db.Join(ctx, g.ID, u, "restricted"); err != nil {
+			if source != "unknown" {
+				l := store.Log{EventKey: "self-fixture-" + source, ChatID: g.ID, UserID: uid, Source: source, Decision: domain.Decision{Action: "mute", Duration: 3600}}
+				if err := svc.Punish(ctx, l, 42); err != nil {
+					t.Fatal(err)
+				}
+			}
+			m := domain.Message{From: &domain.User{ID: uid}, Chat: domain.Chat{ID: uid, Type: "private"}}
+			if err := svc.StartSelfVerification(ctx, m, g.ID); err != nil {
 				t.Fatal(err)
 			}
-			v := store.Verification{Token: fmt.Sprintf("self-%d", uid), ChatID: g.ID, UserID: uid, Type: "math", Question: "1+1", AnswerHash: store.HashAnswer(fmt.Sprintf("self-%d", uid), "2"), FailAction: action, ExpiresAt: time.Now().Add(-time.Minute)}
-			if err := db.CreateVerification(ctx, v); err != nil {
+			v, err := db.ActiveVerification(ctx, g.ID, uid)
+			if err != nil || !strings.HasPrefix(v.Token, "self_") {
+				t.Fatal(v, err)
+			}
+			before := count("restrictChatMember")
+			if err := svc.AnswerVerification(ctx, v.Token, uid+100, "human"); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := db.DB.Exec("UPDATE verification_sessions SET status='expired',notice_done=TRUE WHERE token=?", v.Token); err != nil {
+			if count("restrictChatMember") != before {
+				t.Fatal("another user unmuted target")
+			}
+			mu.Lock()
+			callStart := len(calls)
+			mu.Unlock()
+			if err := svc.AnswerVerification(ctx, v.Token, uid, "human", "self-final"); err != nil {
 				t.Fatal(err)
 			}
-			return v
+			current, err := db.Verification(ctx, v.Token)
+			if err != nil || current.Status != "verified" || count("restrictChatMember") != before+1 {
+				t.Fatal(current, err)
+			}
+			mu.Lock()
+			for _, c := range calls[callStart:] {
+				if c.Method == "sendMessage" && fmt.Sprint(c.Body["chat_id"]) == fmt.Sprint(g.ID) {
+					t.Error("self unmute sent group welcome", c.Body)
+				}
+			}
+			mu.Unlock()
+			if err := svc.AnswerVerification(ctx, v.Token, uid, "human", "self-final-again"); err != nil {
+				t.Fatal(err)
+			}
+			if count("restrictChatMember") != before+1 {
+				t.Fatal("replayed self unmute")
+			}
 		}
-		msg := func(uid int64) domain.Message {
-			return domain.Message{From: &domain.User{ID: uid}, Chat: domain.Chat{ID: uid, Type: "private"}}
-		}
-		v := create(99301, "mute")
-		if err := svc.SelfVerification(ctx, msg(99302), v.Token); err != nil {
+		uid := int64(99410)
+		mu.Lock()
+		roles[uid] = "kicked"
+		mu.Unlock()
+		m := domain.Message{From: &domain.User{ID: uid}, Chat: domain.Chat{ID: uid, Type: "private"}}
+		if err := svc.StartSelfVerification(ctx, m, g.ID); err != nil {
 			t.Fatal(err)
 		}
-		current, err := db.Verification(ctx, v.Token)
-		if err != nil || current.Status != "expired" {
-			t.Fatal(current, err)
+		if _, err := db.ActiveVerification(ctx, g.ID, uid); err != sql.ErrNoRows {
+			t.Fatal("banned user got challenge", err)
 		}
-		if err := svc.SelfVerificationMenu(ctx, msg(v.UserID)); err != nil {
+		uid = 99411
+		mu.Lock()
+		roles[uid] = "restricted"
+		mu.Unlock()
+		m.From = &domain.User{ID: uid}
+		m.Chat.ID = uid
+		if err := svc.StartSelfVerification(ctx, m, g.ID); err != nil {
 			t.Fatal(err)
 		}
-		if err := svc.SelfVerification(ctx, msg(v.UserID), v.Token); err != nil {
+		v, err := db.ActiveVerification(ctx, g.ID, uid)
+		if err != nil {
 			t.Fatal(err)
 		}
-		current, err = db.Verification(ctx, v.Token)
-		if err != nil || current.Status != "pending" || current.Type != "button" {
-			t.Fatal(current, err)
+		if _, err := db.DB.Exec("UPDATE verification_sessions SET status='expiring' WHERE token=?", v.Token); err != nil {
+			t.Fatal(err)
 		}
 		before := count("restrictChatMember")
-		if err := svc.AnswerVerification(ctx, v.Token, v.UserID, "human", "self-answer"); err != nil {
+		if err := svc.SweepVerification(ctx); err != nil {
 			t.Fatal(err)
 		}
-		current, err = db.Verification(ctx, v.Token)
-		if err != nil || current.Status != "verified" || count("restrictChatMember") != before+1 {
-			t.Fatal(current, err)
-		}
-		for i, action := range []string{"kick", "ban"} {
-			v = create(int64(99310+i), action)
-			if ok, err := db.CanSelfVerify(ctx, v.Token, v.UserID); err != nil || ok {
-				t.Fatal("unsafe failure action", action, ok, err)
-			}
-		}
-		v = create(99320, "mute")
-		l := store.Log{EventKey: "self-manual-mute", ChatID: g.ID, UserID: v.UserID, Source: "manual", Decision: domain.Decision{Action: "mute", Duration: 3600}}
-		if err := svc.Punish(ctx, l, 42); err != nil {
-			t.Fatal(err)
-		}
-		if ok, err := db.CanSelfVerify(ctx, v.Token, v.UserID); err != nil || ok {
-			t.Fatal("manual mute bypass", ok, err)
-		}
-		v = create(99321, "mute")
-		if err := svc.ObserveVerificationTakeover(ctx, domain.MemberUpdate{Date: time.Now().Unix(), Chat: g, From: domain.User{ID: 42}, Old: domain.Member{Status: "restricted", IsMember: true}, New: domain.Member{Status: "restricted", IsMember: true, User: domain.User{ID: v.UserID}}}); err != nil {
-			t.Fatal(err)
-		}
-		if ok, err := db.CanSelfVerify(ctx, v.Token, v.UserID); err != nil || ok {
-			t.Fatal("external mute bypass", ok, err)
+		if count("restrictChatMember") != before {
+			t.Fatal("expired self challenge released mute")
 		}
 	})
 }

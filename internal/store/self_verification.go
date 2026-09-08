@@ -1,56 +1,57 @@
 package store
 
-import "context"
+import (
+	"context"
+	"tgguard/internal/domain"
+)
+
+func (s *Store) SelfUnmuteDone(ctx context.Context, key string) (bool, error) {
+	var done bool
+	err := s.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM punishments WHERE event_key=? AND status='done' AND acted=TRUE)`, key).Scan(&done)
+	return done, err
+}
 
 func (s *Store) CancelExternallyManagedVerification(ctx context.Context, chat, user, date int64) error {
 	_, err := s.DB.ExecContext(ctx, `UPDATE verification_sessions SET status='cancelled' WHERE chat_id=? AND user_id=? AND created_at<FROM_UNIXTIME(?+1) AND status IN ('pending','expiring','completing','expired')`, chat, user, date)
 	return err
 }
 
-type SelfVerification struct {
-	Token string
-	Title string
-}
-
-// Only the current join's latest verification can own the remaining restriction.
-const selfVerificationEligible = `v.status IN ('pending','expiring','expired')
-AND (v.status='pending' OR v.fail_action='mute')
-AND EXISTS(SELECT 1 FROM bot_groups g WHERE g.chat_id=v.chat_id AND g.active=TRUE AND g.authorization='approved')
-AND EXISTS(SELECT 1 FROM group_members m WHERE m.chat_id=v.chat_id AND m.user_id=v.user_id AND m.left_at IS NULL AND m.joined_at<=v.created_at AND (m.verified_at IS NULL OR m.verified_at<m.joined_at))
-AND NOT EXISTS(SELECT 1 FROM verification_sessions newer WHERE newer.chat_id=v.chat_id AND newer.user_id=v.user_id AND newer.created_at>v.created_at)
-AND NOT EXISTS(SELECT 1 FROM punishments p WHERE p.chat_id=v.chat_id AND p.user_id=v.user_id AND p.created_at>=v.created_at AND (p.status='pending' OR p.acted=TRUE OR EXISTS(SELECT 1 FROM punishment_workflows w WHERE w.event_key=p.event_key AND w.started=TRUE)) AND JSON_UNQUOTE(JSON_EXTRACT(p.decision,'$.action')) IN ('mute','ban','kick','unmute','unban'))`
-
-func (s *Store) SelfVerifications(ctx context.Context, user int64) ([]SelfVerification, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT v.token,g.title FROM verification_sessions v JOIN bot_groups g ON g.chat_id=v.chat_id WHERE v.user_id=? AND `+selfVerificationEligible+` ORDER BY v.created_at DESC LIMIT 20`, user)
+func (s *Store) SelfVerificationGroups(ctx context.Context, before int64) ([]domain.Chat, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT chat_id,title FROM bot_groups WHERE active=TRUE AND authorization='approved' AND chat_id<? ORDER BY chat_id DESC LIMIT 20`, before)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := []SelfVerification{}
+	out := []domain.Chat{}
 	for rows.Next() {
-		var v SelfVerification
-		if err := rows.Scan(&v.Token, &v.Title); err != nil {
+		var g domain.Chat
+		g.Type = "supergroup"
+		if err := rows.Scan(&g.ID, &g.Title); err != nil {
 			return nil, err
 		}
-		out = append(out, v)
+		out = append(out, g)
 	}
 	return out, rows.Err()
 }
 
-func (s *Store) CanSelfVerify(ctx context.Context, token string, user int64) (bool, error) {
-	var ok bool
-	err := s.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM verification_sessions v WHERE v.token=? AND v.user_id=? AND `+selfVerificationEligible+`)`, token, user).Scan(&ok)
-	return ok, err
-}
-
-func (s *Store) ReopenVerification(ctx context.Context, v Verification) error {
-	r, err := s.DB.ExecContext(ctx, `UPDATE verification_sessions SET status='pending',challenge_type=?,question=?,answer_hash=?,attempts=0,expires_at=?,prompt_id=0,notice_done=FALSE,next_attempt_at=UTC_TIMESTAMP(6),recovery_attempts=0,last_error='' WHERE token=? AND user_id=? AND status='expired' AND fail_action='mute'`, v.Type, v.Question, v.AnswerHash, v.ExpiresAt, v.Token, v.UserID)
+func (s *Store) CreateSelfVerification(ctx context.Context, v Verification) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	n, err := r.RowsAffected()
-	if err == nil && n != 1 {
-		return ErrVerification
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `UPDATE verification_sessions SET status='cancelled' WHERE chat_id=? AND user_id=? AND status IN ('pending','expiring','completing','releasing')`, v.ChatID, v.UserID); err != nil {
+		return err
 	}
-	return err
+	_, err = tx.ExecContext(ctx, `INSERT INTO verification_sessions(token,chat_id,user_id,challenge_type,question,answer_hash,fail_action,expires_at) VALUES(?,?,?,?,?,?,?,?)`, v.Token, v.ChatID, v.UserID, v.Type, v.Question, v.AnswerHash, "mute", v.ExpiresAt)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) SelfVerificationBusy(ctx context.Context, v Verification) (bool, error) {
+	var busy bool
+	err := s.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM punishments WHERE chat_id=? AND user_id=? AND status='pending' AND event_key<>? AND `+takeoverActions+`)`, v.ChatID, v.UserID, "self-unmute:"+v.Token).Scan(&busy)
+	return busy, err
 }

@@ -107,6 +107,11 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 		return e
 	}
 	defer unlock()
+	return s.punishLocked(ctx, l, actor)
+}
+
+// punishLocked shares the punishment workflow with verification while holding the member lock.
+func (s *Service) punishLocked(ctx context.Context, l store.Log, actor int64) (err error) {
 	loggedDecision := l.Decision
 	if (l.Source == "automatic" || l.Source == "review") && l.Decision.Delete && l.Decision.Action != "ban" {
 		already, err := s.Store.MessageAlreadyPunished(ctx, l)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,6 +54,24 @@ func reviewActions(p store.Punishment) []struct{ label, action string } {
 	return append(actions, struct{ label, action string }{"标记误判", "false"}, struct{ label, action string }{"加入白名单", "white"})
 }
 func (s *Service) Callback(ctx context.Context, c domain.Callback) error {
+	if strings.HasPrefix(c.Data, "sg:") || strings.HasPrefix(c.Data, "sp:") {
+		if c.Message == nil || c.Message.Chat.Type != "private" || c.Message.Chat.ID != c.From.ID {
+			return nil
+		}
+		id, err := strconv.ParseInt(c.Data[3:], 10, 64)
+		if err != nil || id >= 0 {
+			return nil
+		}
+		if err = s.Bot.AnswerCallback(ctx, c.ID, ""); err != nil {
+			return err
+		}
+		m := *c.Message
+		m.From = &c.From
+		if strings.HasPrefix(c.Data, "sp:") {
+			return s.SelfVerificationMenu(ctx, m, id)
+		}
+		return s.StartSelfVerification(ctx, m, id)
+	}
 	if strings.HasPrefix(c.Data, "sv:") {
 		if c.Message == nil || c.Message.Chat.Type != "private" || c.Message.Chat.ID != c.From.ID {
 			return nil

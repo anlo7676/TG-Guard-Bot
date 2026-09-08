@@ -213,11 +213,13 @@ func (s *Service) AnswerVerification(ctx context.Context, token string, user int
 	if v.Status == "cancelled" || v.Status == "releasing" {
 		return s.text(ctx, user, "这次验证已结束或由管理员接管。如仍无法发言，请联系群管理员处理。")
 	}
-	if busy, e := s.Store.VerificationTakenOver(ctx, v.ChatID, v.UserID); e != nil || busy {
-		if e != nil {
-			return e
+	if !strings.HasPrefix(v.Token, "self_") {
+		if busy, e := s.Store.VerificationTakenOver(ctx, v.ChatID, v.UserID); e != nil || busy {
+			if e != nil {
+				return e
+			}
+			return s.text(ctx, user, "管理员正在处理你的发言权限，请稍后重试。")
 		}
-		return s.text(ctx, user, "管理员正在处理你的发言权限，请稍后重试。")
 	}
 	if v.Status == "completing" {
 		return s.finishVerification(ctx, v)
@@ -236,6 +238,9 @@ func verificationTerminal(status string) bool {
 	return status == "verified" || status == "expired" || status == "cancelled" || status == "blocked" || status == "left"
 }
 func (s *Service) finishVerification(ctx context.Context, v store.Verification) error {
+	if strings.HasPrefix(v.Token, "self_") {
+		return s.finishSelfVerification(ctx, v)
+	}
 	if verificationTerminal(v.Status) {
 		settings, e := s.Store.Settings(ctx, v.ChatID)
 		if e != nil {

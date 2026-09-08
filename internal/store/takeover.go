@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 )
 
 const takeoverActions = "JSON_UNQUOTE(JSON_EXTRACT(decision,'$.action')) IN ('mute','ban','kick','unmute')"
@@ -35,7 +36,13 @@ func (s *Store) CompleteTakeover(ctx context.Context, l Log) error {
 		return ErrAuthorityChanged
 	}
 	if l.Decision.Action != "unban" {
-		if _, err = tx.ExecContext(ctx, "UPDATE verification_sessions SET status='cancelled' WHERE chat_id=? AND user_id=? AND status IN ('pending','completing','expiring','releasing')", l.ChatID, l.UserID); err != nil {
+		query := "UPDATE verification_sessions SET status='cancelled' WHERE chat_id=? AND user_id=? AND status IN ('pending','completing','expiring','releasing')"
+		args := []any{l.ChatID, l.UserID}
+		if l.Decision.Reason == "self_verification" {
+			query += " AND token<>?"
+			args = append(args, strings.TrimPrefix(l.EventKey, "self-unmute:"))
+		}
+		if _, err = tx.ExecContext(ctx, query, args...); err != nil {
 			return err
 		}
 	}
