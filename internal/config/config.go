@@ -12,6 +12,7 @@ import (
 )
 
 type Config struct {
+	UpdateDir                                            string
 	TrustedProxies                                       []netip.Prefix
 	AIAllowInsecureHTTP                                  bool
 	RetentionDays                                        int
@@ -30,6 +31,7 @@ func Load() (Config, error) {
 		DSN: os.Getenv("MYSQL_DSN"), RedisAddr: env("REDIS_ADDR", "127.0.0.1:6379"), RedisPassword: os.Getenv("REDIS_PASSWORD"),
 		AdminToken: os.Getenv("ADMIN_API_TOKEN"), WebhookURL: os.Getenv("WEBHOOK_URL"), WebhookSecret: os.Getenv("WEBHOOK_SECRET"),
 		AIBaseURL: env("AI_BASE_URL", "https://api.openai.com/v1"), AIKey: os.Getenv("AI_API_KEY"), AIModel: os.Getenv("AI_MODEL"), SuperAdmins: map[int64]bool{}}
+	c.UpdateDir = os.Getenv("UPDATE_STATE_DIR")
 	if c.Token == "" || c.DSN == "" {
 		return c, errors.New("BOT_TOKEN and MYSQL_DSN are required")
 	}

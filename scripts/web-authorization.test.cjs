@@ -74,3 +74,22 @@ test('rule workspace exposes saved policy test and readable filters',()=>{const 
 function labSetup(){const h=setup();const field=value=>({value,checked:false,focus(){}});h.get('#rule-lab-form').elements={text:field('原文'),forward_source:field('广告来源'),quote:field('广告引用'),new_member:field('')};h.sample={dataset:{adSample:'公司招聘 Go 工程师'}};h.ctx.document.querySelectorAll=q=>q==='[data-ad-sample]'?[h.sample]:[];vm.runInContext("bindRuleLab('-1001')",h.ctx);h.submitLab=()=>h.get('#rule-lab-form').onsubmit({preventDefault(){},submitter:h.get('#lab-submit')});return h}
 test('switching sample clears stale forwarded advertising evidence',()=>{const h=labSetup();h.sample.onclick();const f=h.get('#rule-lab-form');assert.equal(f.elements.text.value,'公司招聘 Go 工程师');assert.equal(f.elements.forward_source.value,'');assert.equal(f.elements.quote.value,'')});
 test('lab errors clear stale results and late responses cannot overwrite edited input',async()=>{const h=labSetup();h.get('#rule-lab-result').innerHTML='删除消息';h.ctx.testError='network';await h.submitLab();assert.equal(h.get('#rule-lab-result').innerHTML,'');h.ctx.testError=null;vm.runInContext('api=()=>new Promise(resolve=>{release=resolve})',h.ctx);const pending=h.submitLab();h.get('#rule-lab-form').oninput();h.ctx.release({});await pending;assert.equal(h.get('#rule-lab-result').innerHTML,'')});
+
+test('web copy excludes obsolete operator wording and escaped blank artifacts',()=>{
+ const dir=path.join(__dirname,'../internal/api/web');for(const file of fs.readdirSync(dir)){if(!/\.(html|js)$/.test(file))continue;assert.doesNotMatch(fs.readFileSync(path.join(dir,file),'utf8'),/部署者|&#(?:x20|32);/i,file)}
+});
+test('upgrade requires explicit confirmation and preserves failed requests for retry',async()=>{
+ const h=setup();vm.runInContext(fs.readFileSync(path.join(__dirname,'../internal/api/web/updates.js'),'utf8'),h.ctx);
+ vm.runInContext(`state.page='updates';setTimeout=()=>1;api=async(path,options)=>{calls.push({path,options});if(options?.method==='POST'){if(testError)throw Error(testError);return {}}if(path.endsWith('/check'))return {available:true,release:{version:'v1.10.0',url:'https://github.com/anlo7676/TG-Guard-Bot/releases/tag/v1.10.0'}};return {current:'1.9.0',enabled:true,can_upgrade:true,job:{phase:'idle',message:'暂无升级任务'}}};`,h.ctx);
+ const view=await vm.runInContext('updates()',h.ctx);view.bind();await h.get('#check-upgrade').onclick({target:h.get('#check-upgrade')});h.get('#start-upgrade').onclick();
+ assert.equal(h.ctx.calls.filter(c=>c.options?.method==='POST').length,0);
+ h.get('#inline-action-cancel').onclick();assert.equal(h.ctx.calls.filter(c=>c.options?.method==='POST').length,0);
+ h.get('#start-upgrade').onclick();h.ctx.testError='network';await h.get('#inline-action-form').onsubmit({preventDefault(){}});assert.equal(h.get('#inline-action-error').textContent,'network');
+ h.ctx.testError=null;await h.get('#inline-action-form').onsubmit({preventDefault(){}});
+ const posts=h.ctx.calls.filter(c=>c.options?.method==='POST');assert.equal(posts.length,2);assert.equal(posts[1].options.body.version,'v1.10.0');assert.equal(h.get('#start-upgrade').disabled,true);
+});
+test('upgrade page explains unavailable agent and restricted operator',async()=>{
+ const h=setup();vm.runInContext(fs.readFileSync(path.join(__dirname,'../internal/api/web/updates.js'),'utf8'),h.ctx);
+ vm.runInContext("api=async()=>({current:'1.9.0',enabled:false,can_upgrade:true,job:{phase:'idle'}})",h.ctx);let view=await vm.runInContext('updates()',h.ctx);assert.match(view.html,/启用网页升级/);
+ vm.runInContext("api=async()=>({current:'1.9.0',enabled:true,can_upgrade:false,job:{phase:'idle'}})",h.ctx);view=await vm.runInContext('updates()',h.ctx);assert.match(view.html,/恢复密钥/);
+});

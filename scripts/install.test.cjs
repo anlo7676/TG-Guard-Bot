@@ -14,6 +14,7 @@ test('remote bash -c installer supports first install and safe updates', () => {
 uname() { echo Linux; }
 id() { echo 0; }
 docker() { return 0; }
+flock() { [[ ! -f "$TG_GUARD_INSTALL_DIR/locked" ]]; }
 curl() { echo '"tag_name": "v1.8.0",'; }
 apt-get() { echo 'Unexpected system mutation' >&2; return 99; }
 git() {
@@ -35,7 +36,7 @@ git() {
   esac
 }
 `;
-  const run = () => spawnSync(process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash', ['-c', mocks + '\nexport TG_GUARD_INSTALL_DIR="$PWD/app"\n' + installer], {cwd:root, encoding:'utf8'});
+  const run = (extra={}) => spawnSync(process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash', ['-c', mocks + '\nexport TG_GUARD_INSTALL_DIR="$PWD/app"\n' + installer], {cwd:root, encoding:'utf8',env:{...process.env,...extra}});
   try {
     let result = run();
     assert.equal(result.status, 0, result.stderr);
@@ -43,7 +44,8 @@ git() {
     result = run();
     assert.equal(result.status, 0, result.stderr);
     assert.equal(fs.readFileSync(path.join(target, 'deployed'), 'utf8'), 'deployed\ndeployed\n');
-    for (const marker of ['dirty', 'wrong-remote', 'diverged']) {
+    assert.notEqual(run({TG_GUARD_TARGET_RELEASE:'v9.9.9'}).status,0,'changed stable release must not install');
+    for (const marker of ['dirty', 'wrong-remote', 'diverged','locked']) {
       fs.writeFileSync(path.join(target, marker), 'test');
       result = run();
       assert.notEqual(result.status, 0, marker);
@@ -61,6 +63,7 @@ git() {
     result = run();
     assert.equal(result.status, 0, result.stderr);
     assert.ok(fs.existsSync(path.join(root, 'menu-reached')));
+    fs.rmSync(path.join(target, '.git', 'tg-guard-upgrade.lock'), {force:true});
     fs.rmdirSync(path.join(target, '.git'));
     result = run();
     assert.notEqual(result.status, 0);

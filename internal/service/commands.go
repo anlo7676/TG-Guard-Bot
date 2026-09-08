@@ -87,6 +87,8 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 		}
 	}
 	switch command {
+	case "dc":
+		return s.dataCenter(ctx, m, arg)
 	case "version":
 		return s.text(ctx, m.Chat.ID, buildinfo.Label())
 	case "start":

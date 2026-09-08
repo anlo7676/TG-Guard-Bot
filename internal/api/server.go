@@ -42,6 +42,9 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("POST /telegram/webhook", s.webhook)
 	}
 	admin := http.NewServeMux()
+	admin.HandleFunc("GET /api/v1/upgrades", s.upgrades)
+	admin.HandleFunc("GET /api/v1/upgrades/check", s.checkUpgrade)
+	admin.HandleFunc("POST /api/v1/upgrades", s.upgrades)
 	admin.HandleFunc("POST /api/v1/panel-ticket", s.ticket)
 	admin.HandleFunc("POST /api/v1/admin-credentials", s.adminCredential)
 	admin.HandleFunc("POST /api/v1/sessions/revoke", s.revokeSessions)

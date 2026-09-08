@@ -5,6 +5,8 @@ Set-Location -LiteralPath $projectRoot
 $env:GOCACHE = Join-Path $projectRoot 'tmp\go-build'
 node --check internal/api/web/app.js
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+node --check internal/api/web/updates.js
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 node --test scripts/web-authorization.test.cjs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 node --test scripts/deploy.test.cjs
@@ -14,6 +16,8 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 node --test scripts/manage.test.cjs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 node --test scripts/release.test.cjs
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+node --test scripts/setup-updater.test.cjs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 go vet ./...
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

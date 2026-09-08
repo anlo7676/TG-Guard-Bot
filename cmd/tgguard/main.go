@@ -23,6 +23,7 @@ import (
 	"tgguard/internal/state"
 	"tgguard/internal/store"
 	"tgguard/internal/telegram"
+	"tgguard/internal/upgrade"
 )
 
 func main() {
@@ -34,7 +35,13 @@ func main() {
 }
 func run() error {
 	migrateOnly := flag.Bool("migrate-only", false, "apply MySQL migrations and exit")
+	updateProject := flag.String("update-agent", "", "run host update agent for an absolute project directory")
 	flag.Parse()
+	if *updateProject != "" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return upgrade.RunAgent(ctx, *updateProject)
+	}
 	c, e := config.Load()
 	if e != nil {
 		return e

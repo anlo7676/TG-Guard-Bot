@@ -47,8 +47,14 @@ for key in BOT_TOKEN ADMIN_API_TOKEN MYSQL_PASSWORD MYSQL_ROOT_PASSWORD REDIS_PA
 done
 unset value
 if [[ "$mode" != --panel-only ]]; then
+[[ ! -L .updates ]] || { echo '升级任务目录不能是符号链接，请检查 .updates。'; exit 1; }
+if [[ ! -d .updates ]]; then mkdir .updates; fi
+if [[ "$(id -u)" == 0 ]]; then chown 10001:10001 .updates; chmod 750 .updates; fi
 echo '正在下载程序并启动服务，首次拉取镜像可能需要几分钟……'
 docker compose --env-file .env up -d --build --wait --wait-timeout 300
+if [[ "${TG_WEB_UPDATE_JOB:-}" != 1 && "$(id -u)" == 0 ]] && command -v systemctl >/dev/null && [[ -d /run/systemd/system && -f scripts/setup-updater.sh ]]; then
+  bash scripts/setup-updater.sh || echo '服务已启动；网页升级尚未启用，可稍后在管理菜单启用。'
+fi
 fi
 # A short-lived ticket avoids displaying the permanent administrator credential.
 if ! response=$(printf 'header = "Authorization: Bearer %s"\n' "$ADMIN_API_TOKEN" | curl --config - --fail --silent --show-error --max-time 15 -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8080/api/v1/panel-ticket); then

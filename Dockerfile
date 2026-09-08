@@ -1,6 +1,6 @@
 FROM alpine:3.23 AS download
 ARG TARGETARCH
-ARG RELEASE_VERSION=v1.9.0
+ARG RELEASE_VERSION=v1.10.0
 RUN apk add --no-cache ca-certificates \
     && case "$TARGETARCH" in amd64|arm64) ;; *) echo "Unsupported architecture: $TARGETARCH"; exit 1;; esac \
     && mkdir /out && cd /out \
@@ -12,7 +12,7 @@ RUN apk add --no-cache ca-certificates \
     && mv "tgguard-linux-$TARGETARCH" tgguard && chmod 0755 tgguard
 
 FROM alpine:3.23
-RUN apk add --no-cache ca-certificates tzdata && addgroup -S app && adduser -S -G app app
+RUN apk add --no-cache ca-certificates tzdata && addgroup -S -g 10001 app && adduser -S -u 10001 -G app app
 COPY --from=download /out/tgguard /usr/local/bin/tgguard
 USER app
 EXPOSE 8080

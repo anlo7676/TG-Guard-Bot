@@ -27,6 +27,7 @@ coverage-*.out
 /backups/
 /dumps/
 /data/
+/.updates/
 
 # 编辑器、系统文件与临时副本
 .idea/

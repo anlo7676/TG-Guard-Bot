@@ -7,6 +7,7 @@ stable_release() {
   response=$(curl -fsSL --retry 3 --max-time 30 https://api.github.com/repos/anlo7676/TG-Guard-Bot/releases/latest) || return 1
   tag=$(printf '%s\n' "$response" | sed -n 's/^[[:space:]]*"tag_name":[[:space:]]*"\(v[0-9][^"]*\)".*/\1/p')
   [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo '无法取得已验收的稳定版本，现有服务未修改。' >&2; return 1; }
+  [[ -z "${TG_GUARD_TARGET_RELEASE:-}" || "$tag" == "$TG_GUARD_TARGET_RELEASE" ]] || { echo '稳定版本已变化，请重新检查更新。' >&2; return 1; }
   printf '%s' "$tag"
 }
 install_dependencies() {
@@ -69,6 +70,9 @@ main() {
       bash "$target/scripts/manage.sh"
       return
     fi
+    command -v flock >/dev/null || { echo '缺少 flock，请安装 util-linux 后重试。' >&2; return 1; }
+    exec 9> "$target/.git/tg-guard-upgrade.lock"
+    flock -n 9 || { echo '已有服务器更新正在进行，请等待完成。' >&2; return 1; }
     install_dependencies
     release=$(stable_release)
     git -C "$target" fetch origin "refs/tags/$release:refs/tags/$release"

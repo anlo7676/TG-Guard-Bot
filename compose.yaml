@@ -38,7 +38,7 @@ services:
       retries: 20
     networks: [backend]
   app:
-    image: tg-guard:1.9.0
+    image: tg-guard:1.10.0
     logging: *default-logging
     build: .
     restart: unless-stopped
@@ -47,6 +47,9 @@ services:
       MYSQL_DSN: "tgguard:${MYSQL_PASSWORD}@tcp(mysql:3306)/tgguard?parseTime=true&charset=utf8mb4&loc=UTC"
       REDIS_ADDR: redis:6379
       HTTP_ADDR: :8080
+      UPDATE_STATE_DIR: /var/lib/tg-guard-updates
+    volumes:
+      - ./.updates:/var/lib/tg-guard-updates
     ports:
       - "${PANEL_BIND:-127.0.0.1}:8080:8080"
     depends_on:

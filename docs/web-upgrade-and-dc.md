@@ -1,0 +1,42 @@
+# 网页升级与 DC 查询（v1.10.0）
+
+## /dc 查询
+
+- 私聊或已授权超级群发送 `/dc`：查询自己。
+- 回复某位用户的消息发送 `/dc`：查询被回复的用户。
+- `/dc 123456789`：按 Telegram 数字用户 ID 查询。
+- 每位请求者每分钟最多 5 次查询，群内命令仍经过广告审核，未授权群不能使用。
+
+结果为当前机器人可见头像的存储 DC。Telegram Bot API 的用户对象没有账号归属 DC 字段，不能据此推断用户所在国家、注册地区或真实位置。没有公开可见头像、隐私限制或未识别的文件格式时明确显示无法查询。实现只兼容已知的文件标识头部格式，未来 Telegram 更改格式可能需要更新程序。
+
+参考：[Telegram 头像 DC 字段定义](https://core.telegram.org/constructor/userProfilePhoto)、[Telegram Bot API](https://core.telegram.org/bots/api#getuserprofilephotos)。
+
+## 第一次启用网页升级
+
+旧服务器先在服务器管理菜单选择「更新到最新版本」。本版 Linux root/sudo + systemd 安装会在服务健康后自动安装升级服务；如未自动启用，在服务器菜单选择「8. 启用网页升级」。之后在网页左侧「系统升级」完成检查、确认和查看结果。
+
+仅使用后台恢复密钥登录的系统管理员可提交升级。独立管理员能查看版本及状态，但不能替换服务器程序。页面显示未启用时不会假装提交成功。Windows、本地直接运行、没有 systemd 或没有 root 权限的环境可以检查版本，仍通过原有本地/服务器流程更新。
+
+升级仅接受官方最新稳定标签，附件必须包含两种架构程序和校验文件。不接受任意下载地址、上传的程序、分支名或 shell 命令。网页与服务器服务各自校验版本；版本已变化时要求重新检查。服务同时处理一个升级任务，服务器命令行更新另由 flock 互斥。
+
+## 执行和数据保留
+
+应用容器仅挂载项目 `.updates` 任务目录，不挂载 Docker socket 或项目源码。独立 systemd 服务 `tg-guard-updater` 在主机运行固定安装流程；应用重新创建时任务继续。目录和原 `.env`、MySQL/Redis 卷均保留，任务记录不加入 Git 或构建上下文。
+
+安装流程要求仓库是干净的官方 main 分支，并只快进到已验收标签。启动失败尝试恢复此前代码和服务；数据库迁移不自动回退。执行前备份 MySQL 和 `.env`。脚本执行最多 20 分钟，超时终止该任务进程组；中断任务不会自动重放，需检查实际服务版本后重试。
+
+任务状态保存在 `.updates/status.json`；提交意图记录在操作审计的全局 `system.upgrade.request`。执行输出不会传给网页，避免登录票据或服务器配置泄露。程序下载和容器错误可在服务器检查 `docker compose ps`、`docker compose logs --tail 60 app`，升级服务状态可用 `systemctl status tg-guard-updater` 和 `journalctl -u tg-guard-updater` 查看。
+
+升级服务程序复制至 `/usr/local/lib/tg-guard/updater`，单机目前仅支持一套该 systemd 服务。停止网页升级可执行 `systemctl disable --now tg-guard-updater`，不影响机器人继续运行。新版应用固定使用 UID/GID 10001，使任务目录权限一致。
+
+## API
+
+所有接口沿用后台鉴权及会话 CSRF 校验：
+
+| 接口 | 行为 |
+| --- | --- |
+| GET `/api/v1/upgrades` | 当前版本、升级服务可用性、操作者资格和最近任务 |
+| GET `/api/v1/upgrades/check` | 查询官方稳定版本和是否可升级 |
+| POST `/api/v1/upgrades` | 提交 `{"version":"v1.10.0"}`，只允许比当前运行版本新的最新稳定版；成功 202，重复/版本变化 409，权限不足 403 |
+
+网页使用内联确认，提交后禁用重复操作，服务切换期间自动尝试重新连接。当前网页资源不含旧的“部署者”称呼及转义空白残留，测试检查该约束。

@@ -1,6 +1,6 @@
 # TG Guard Bot
 
-v1.9.0 加固授权与处罚恢复，加入配置并发编辑保护、可信代理识别及本地规则缓存。升级前请阅读 [安全与升级说明](docs/security-and-upgrade.md)；本次优化对应的实现和验证见 [优化记录](docs/optimization-2026-09-08.md)。
+v1.10.0 增加 `/dc` 头像数据中心查询和网页「系统升级」。升级方式与功能边界见 [网页升级与 DC 查询](docs/web-upgrade-and-dc.md)，旧版本安全配置变化见 [安全与升级说明](docs/security-and-upgrade.md)。
 
 基于 **Go 1.26.7 + MySQL 8.4 + Redis 8.6.2** 的 Telegram 智能群管机器人。以需求说明书第六十章的第一版 MVP 为交付范围，遵循“规则优先、AI 辅助、人工可干预”。
 
