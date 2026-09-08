@@ -40,7 +40,13 @@ func (h *Handler) Handle(ctx context.Context, u domain.Update) error {
 	if m == nil {
 		m = u.Edited
 	}
-	if m == nil || m.From == nil {
+	if m == nil {
+		return nil
+	}
+	if m.SenderChat != nil {
+		return s.ModerateSenderChat(ctx, u.ID, *m)
+	}
+	if m.From == nil {
 		return nil
 	}
 	if len(m.NewMembers) > 0 {

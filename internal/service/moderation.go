@@ -131,6 +131,9 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 			}
 		}
 	}()
+	if l.UserID < 0 {
+		return s.punishSenderChat(ctx, l, p)
+	}
 	u, e := s.Bot.Member(ctx, l.ChatID, l.UserID)
 	if e != nil {
 		return e

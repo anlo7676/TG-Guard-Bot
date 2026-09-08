@@ -25,7 +25,7 @@ git() {
     remote) if [[ -f "$TG_GUARD_INSTALL_DIR/wrong-remote" ]]; then echo https://example.com/other; else echo https://github.com/anlo7676/TG-Guard-Bot.git; fi;;
     branch) echo main;;
     status) [[ ! -f "$TG_GUARD_INSTALL_DIR/dirty" ]] || echo ' M file'; return 0;;
-    fetch) return 0;;
+    fetch) [[ ! -f "$TG_GUARD_INSTALL_DIR/offline" ]];;
     merge) [[ ! -f "$TG_GUARD_INSTALL_DIR/diverged" ]];;
     *) return 99;;
   esac
@@ -47,6 +47,11 @@ git() {
       assert.equal(fs.readFileSync(path.join(target, 'deployed'), 'utf8'), 'deployed\ndeployed\n');
       fs.unlinkSync(path.join(target, marker));
     }
+    fs.writeFileSync(path.join(target, 'scripts/manage.sh'), 'echo reached > menu-reached\n');
+    fs.writeFileSync(path.join(target, 'offline'), 'test');
+    result = run();
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(fs.existsSync(path.join(root, 'menu-reached')));
     fs.rmdirSync(path.join(target, '.git'));
     result = run();
     assert.notEqual(result.status, 0);

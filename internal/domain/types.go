@@ -29,25 +29,26 @@ type Entity struct {
 	URL    string `json:"url,omitempty"`
 }
 type Message struct {
-	ID              int64           `json:"message_id"`
-	From            *User           `json:"from"`
-	SenderChat      *Chat           `json:"sender_chat"`
-	Chat            Chat            `json:"chat"`
-	Date            int64           `json:"date"`
-	Text            string          `json:"text"`
-	Caption         string          `json:"caption"`
-	Entities        []Entity        `json:"entities"`
-	CaptionEntities []Entity        `json:"caption_entities"`
-	NewMembers      []User          `json:"new_chat_members"`
-	LeftMember      *User           `json:"left_chat_member"`
-	Reply           *Message        `json:"reply_to_message"`
-	Photo           json.RawMessage `json:"photo"`
-	Video           json.RawMessage `json:"video"`
-	Document        json.RawMessage `json:"document"`
-	Sticker         json.RawMessage `json:"sticker"`
-	Quote           *TextQuote      `json:"quote"`
-	ExternalReply   *ExternalReply  `json:"external_reply"`
-	Forward         json.RawMessage `json:"forward_origin"`
+	ID                 int64           `json:"message_id"`
+	From               *User           `json:"from"`
+	SenderChat         *Chat           `json:"sender_chat"`
+	IsAutomaticForward bool            `json:"is_automatic_forward"`
+	Chat               Chat            `json:"chat"`
+	Date               int64           `json:"date"`
+	Text               string          `json:"text"`
+	Caption            string          `json:"caption"`
+	Entities           []Entity        `json:"entities"`
+	CaptionEntities    []Entity        `json:"caption_entities"`
+	NewMembers         []User          `json:"new_chat_members"`
+	LeftMember         *User           `json:"left_chat_member"`
+	Reply              *Message        `json:"reply_to_message"`
+	Photo              json.RawMessage `json:"photo"`
+	Video              json.RawMessage `json:"video"`
+	Document           json.RawMessage `json:"document"`
+	Sticker            json.RawMessage `json:"sticker"`
+	Quote              *TextQuote      `json:"quote"`
+	ExternalReply      *ExternalReply  `json:"external_reply"`
+	Forward            json.RawMessage `json:"forward_origin"`
 }
 
 // Body joins only the fields that are actually present, preserving regex anchors.

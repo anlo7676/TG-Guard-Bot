@@ -1266,6 +1266,34 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			}
 		}
 	})
+	t.Run("channel advertising uses delete and warning without user penalties", func(t *testing.T) {
+		m := domain.Message{ID: 909091, Chat: other, SenderChat: &domain.Chat{ID: -200999, Type: "channel"}, From: &domain.User{ID: 136817688, IsBot: true}, Text: "需要群发 联系@SHxxbb"}
+		beforeDelete, beforeWarn := count("deleteMessage"), count("sendMessage")
+		beforeUser := count("getChatMember") + count("restrictChatMember") + count("banChatMember")
+		handler := &Handler{Service: svc}
+		if e := handler.Handle(ctx, domain.Update{ID: 909091, Message: &m}); e != nil {
+			t.Fatal(e)
+		}
+		if count("deleteMessage") != beforeDelete+1 || count("sendMessage") != beforeWarn+1 {
+			t.Fatal("channel ad not removed and warned")
+		}
+		if count("getChatMember")+count("restrictChatMember")+count("banChatMember") != beforeUser {
+			t.Fatal("channel treated as user")
+		}
+		if e := handler.Handle(ctx, domain.Update{ID: 909091, Message: &m}); e != nil {
+			t.Fatal(e)
+		}
+		if count("deleteMessage") != beforeDelete+1 || count("sendMessage") != beforeWarn+1 {
+			t.Fatal("duplicate channel penalty")
+		}
+		m.SenderChat = &domain.Chat{ID: other.ID, Type: "supergroup"}
+		if e := handler.Handle(ctx, domain.Update{ID: 909092, Message: &m}); e != nil {
+			t.Fatal(e)
+		}
+		if count("deleteMessage") != beforeDelete+1 {
+			t.Fatal("anonymous admin punished")
+		}
+	})
 	t.Run("expired menu and revoked permission", func(t *testing.T) {
 		m := domain.Message{Chat: domain.Chat{ID: 42, Type: "private"}, From: &domain.User{ID: 42}}
 		if err := svc.GroupMenu(ctx, m, "gm:-1001:home"); err != nil {

@@ -4,7 +4,7 @@ cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 configure_access() {
   [[ -f .env ]] || { echo '请先选择“安装 / 启动”。'; return 1; }
-  local bind=$1 host='' next
+  local bind=$1 host='' next backup
   if [[ "$bind" == 0.0.0.0 ]]; then
     read -r -p '请输入服务器公网 IPv4 或域名（不含 http:// 和端口，留空取消）：' host
     [[ -n "$host" ]] || return 0
@@ -15,12 +15,20 @@ configure_access() {
   chmod 600 "$next" || { rm -f -- "$next"; return 1; }
   if ! awk '!/^PANEL_BIND=/ && !/^PANEL_HOST=/' .env > "$next"; then rm -f -- "$next"; return 1; fi
   printf '\nPANEL_BIND=%s\nPANEL_HOST=%s\n' "$bind" "$host" >> "$next" || { rm -f -- "$next"; return 1; }
-  mv -- "$next" .env || { rm -f -- "$next"; return 1; }
+  backup=$(mktemp .env.menu-backup.XXXXXX) || { rm -f -- "$next"; return 1; }
+  cp -p -- .env "$backup" || { rm -f -- "$next" "$backup"; return 1; }
+  mv -- "$next" .env || { rm -f -- "$next" "$backup"; return 1; }
   # Apply only the app port mapping; database services and volumes are untouched.
   if ! (export PANEL_BIND="$bind"; docker compose --env-file .env up -d --no-build --no-deps --wait --wait-timeout 120 app); then
-    echo '配置已保存，但应用未就绪。请查看运行日志；修复后选择“安装 / 启动”重试。'
+    mv -- "$backup" .env || { echo '原配置恢复失败，请保留备份并人工恢复。'; return 1; }
+    if ! (unset PANEL_BIND; docker compose --env-file .env up -d --no-build --no-deps --wait --wait-timeout 120 app); then
+      echo '原配置已恢复，但运行状态无法确认。请检查 Docker，不能据此认为公网入口已关闭。'
+    else
+      echo '设置未生效，已恢复原配置和服务。'
+    fi
     return 1
   fi
+  rm -f -- "$backup"
   bash scripts/deploy.sh --panel-only
 }
 
@@ -33,7 +41,7 @@ while true; do
     2) configure_access 0.0.0.0 || echo '访问设置未完成。';;
     3) configure_access 127.0.0.1 || echo '访问设置未完成。';;
     4) bash scripts/deploy.sh --panel-only || echo '未取得登录链接，请先启动服务。';;
-    5) bash install.sh --deploy || echo '更新未完成，配置和数据保留。';;
+    5) TG_GUARD_INSTALL_DIR="$PWD" bash install.sh --deploy || echo '更新未完成，配置和数据保留。';;
     6) docker compose --env-file .env ps || echo '无法读取状态，请检查 Docker。';;
     7) docker compose --env-file .env logs --tail 60 app || echo '无法读取日志。';;
     0) exit 0;;

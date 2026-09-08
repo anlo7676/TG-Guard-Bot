@@ -49,7 +49,7 @@ main() {
   [[ "$(id -u)" == 0 ]] || { echo '请使用 sudo bash 执行安装命令。' >&2; return 1; }
   local target=${TG_GUARD_INSTALL_DIR:-/opt/tg-guard}
   [[ "$target" == /* && "$target" != / && ! -L "$target" ]] || { echo '安装目录必须为非根目录的绝对路径，且不能为符号链接。' >&2; return 1; }
-  install_dependencies
+  # Open an installed menu without network access or package changes.
   if [[ -e "$target" ]]; then
     [[ -d "$target/.git" ]] || { echo "目录 $target 已存在且不是项目仓库；请使用空的新路径，原文件未修改。" >&2; return 1; }
     local remote branch
@@ -57,9 +57,15 @@ main() {
     case "$remote" in https://github.com/anlo7676/TG-Guard-Bot.git|git@github.com:anlo7676/TG-Guard-Bot.git) ;; *) echo '现有目录不是 TG Guard 官方项目仓库，停止更新。' >&2; return 1;; esac
     branch=$(git -C "$target" branch --show-current)
     [[ "$branch" == main && -z "$(git -C "$target" status --porcelain)" ]] || { echo '现有仓库不是干净的 main 分支，请先处理本地修改；配置和数据未清理。' >&2; return 1; }
+    if [[ "${1:-}" != --deploy && -f "$target/scripts/manage.sh" ]]; then
+      bash "$target/scripts/manage.sh"
+      return
+    fi
+    install_dependencies
     git -C "$target" fetch origin main
     git -C "$target" merge --ff-only origin/main
   else
+    install_dependencies
     mkdir -p -- "$(dirname -- "$target")"
     git clone --branch main --single-branch https://github.com/anlo7676/TG-Guard-Bot.git "$target"
   fi
