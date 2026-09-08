@@ -34,6 +34,13 @@ for (const kind of ['bash', ...(process.platform === 'win32' ? ['pwsh'] : [])]) 
       result = run();
       assert.equal(result.status, 0, result.stderr);
       assert.equal(fs.readFileSync(path.join(root, '.env'), 'utf8'), saved);
+      if (kind === 'bash') {
+        fs.writeFileSync(path.join(root, '.env'), config + 'PANEL_BIND=0.0.0.0\nPANEL_HOST=203.0.113.10\n');
+        result = run();
+        assert.equal(result.status, 0, result.stderr);
+        assert.ok(result.stdout.includes('http://203.0.113.10:8080/#ticket=test-ticket'));
+        assert.ok(!result.stdout.includes('本机后台登录地址'));
+      }
       fs.writeFileSync(path.join(root, '.env'), config);
       result = run(true);
       assert.notEqual(result.status, 0);

@@ -241,3 +241,9 @@ scripts/               Windows UTF-8 运行和测试脚本
 本地执行 `pwsh -File scripts/build-release.ps1` 可交叉编译两种架构，产物位于 Git 忽略的 `dist/`。推送版本标签后，Release 工作流使用 Go 1.26.2 测试、构建并上传程序和校验文件。二进制保存在 Release 附件中，不进入 Git 源码历史。
 
 源码构建入口保留为 `docker build -f Dockerfile.source -t tgguard:source .`。维护者发布新版时须同步应用版本和 Dockerfile 的 RELEASE_VERSION，再推送对应版本标签；普通用户重复执行一行安装命令即可更新。
+
+## 使用服务器 IP 打开后台
+
+默认仅本机访问。需要 IP 直连时，在 `/opt/tg-guard/.env` 添加或修改 `PANEL_BIND=0.0.0.0`，可选设置 `PANEL_HOST=服务器公网IP`，然后执行 `bash scripts/deploy.sh`。浏览器打开 `http://服务器公网IP:8080`，使用新生成的登录链接或 `.env` 中的 `ADMIN_API_TOKEN` 登录。云安全组和服务器防火墙需允许你的 IP 访问 TCP 8080。
+
+公网 HTTP 不加密，长期使用建议配置 HTTPS；MySQL 和 Redis 仍不公开端口。后台「机器人管理员」中的地址仅用于机器人菜单展示，不会修改端口监听。

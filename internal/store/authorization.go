@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-var ErrUnauthorized = errors.New("群组未获授权，请联系部署者审批")
+var ErrUnauthorized = errors.New("群组未获授权，请联系机器人管理员审批")
 
 func (s *Store) GroupAuthorized(ctx context.Context, chat int64) (bool, error) {
 	var ok bool
@@ -66,4 +66,13 @@ func (s *Store) changeAuthorization(ctx context.Context, chat, actor int64, stat
 		return e
 	}
 	return tx.Commit()
+}
+
+func (s *Store) GroupAuthorizationStatus(ctx context.Context, chat int64) (string, error) {
+	var status string
+	err := s.DB.QueryRowContext(ctx, "SELECT authorization FROM bot_groups WHERE chat_id=?", chat).Scan(&status)
+	if err == sql.ErrNoRows {
+		return "pending", nil
+	}
+	return status, err
 }

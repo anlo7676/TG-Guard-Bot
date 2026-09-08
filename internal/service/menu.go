@@ -38,7 +38,7 @@ func (s *Service) Home(ctx context.Context, m domain.Message) error {
 		{{"text": "➕ 添加到群组", "url": "https://t.me/" + s.Bot.Username + "?startgroup=true"}, {"text": "📖 使用帮助", "callback_data": "menu:help"}},
 	}}
 	if s.IsSuperAdmin(m.From.ID) {
-		markup["inline_keyboard"] = append(markup["inline_keyboard"].([][]map[string]string), []map[string]string{{"text": "部署者后台说明", "callback_data": "menu:panel"}})
+		markup["inline_keyboard"] = append(markup["inline_keyboard"].([][]map[string]string), []map[string]string{{"text": "管理后台", "callback_data": "menu:panel"}})
 	}
 	_, e := s.Bot.Send(ctx, m.Chat.ID, text, markup, 0)
 	return e
@@ -47,7 +47,7 @@ func (s *Service) PrivateSection(ctx context.Context, m domain.Message, section 
 	if m.From == nil || m.Chat.Type != "private" || m.Chat.ID != m.From.ID {
 		return nil
 	}
-	panel := "http://127.0.0.1:8080/"
+	panel := "后台地址尚未设置，请联系机器人管理员获取。"
 	if s.Runtime != nil && s.Runtime.Snapshot().PanelURL != "" {
 		panel = s.Runtime.Snapshot().PanelURL
 	}
@@ -60,15 +60,15 @@ func (s *Service) PrivateSection(ctx context.Context, m domain.Message, section 
 		if s.IsSuperAdmin(m.From.ID) {
 			role = "机器人管理员"
 		}
-		text = fmt.Sprintf("我的身份\n\nTelegram ID：%d\n身份：%s\n\n要成为机器人管理员，请让部署者在 Web 面板 → 机器人管理员中添加此 ID。", m.From.ID, role)
+		text = fmt.Sprintf("我的身份\n\nTelegram ID：%d\n身份：%s\n\n要成为机器人管理员，请将此 ID 提供给现有机器人管理员，由其添加权限。", m.From.ID, role)
 	case "panel":
-		text = "管理面板\n\n" + panel + "\n\n后台需要登录。部署电脑可运行 scripts/open-panel.ps1 一键登录。127.0.0.1 仅指当前设备；手机访问需由部署者配置可访问的后台地址。"
+		text = "管理面板\n\n" + panel + "\n\n后台需要管理员登录凭据。若地址无法访问，请联系机器人管理员确认。"
 	case "admins":
-		text = fmt.Sprintf("机器人管理员设置\n\n你的 Telegram ID：%d\n\n1. 部署者登录 Web 管理面板。\n2. 打开「机器人管理员」。\n3. 添加这个数字 ID 并保存，立即生效。\n\n群管理员由 Telegram 群内任命，只管理所在群；机器人管理员负责审批，并管理已授权群。\n后台：%s", m.From.ID, panel)
+		text = fmt.Sprintf("机器人管理员设置\n\n你的 Telegram ID：%d\n\n1. 机器人管理员登录 Web 管理面板。\n2. 打开「机器人管理员」。\n3. 添加这个数字 ID 并保存，立即生效。\n\n群管理员由 Telegram 群内任命，只管理所在群；机器人管理员负责审批，并管理已授权群。\n后台：%s", m.From.ID, panel)
 	case "ai":
 		text = "AI 接口设置\n\n在 Web 面板 → AI 接口填写：\n• API Base URL（含 /v1）\n• 模型名称\n• API Key\n\n保存并启用全局 AI 后，还需到「群管理」打开目标群的 AI 审核。Key 加密保存，不通过私聊显示。\n后台：" + panel
 	case "help":
-		text = "使用帮助\n\n新成员\n点击群内入群提示的验证按钮，进入私聊后按题目提示作答。无需在群里发命令；链接失效或找不到提示，请联系群管理员。\n\n群管理员\n点击「我的群组」选择群，再用按钮设置新人验证、审核规则和关键词回复。也可以在目标群发送 /settings 直达该群设置。\n\n接入新群\n把机器人设为群管理员，并授予删除消息、限制成员权限；联系部署者批准接入后，群管理才会启用。\n\n模型接口和机器人超级管理员由部署者在网页后台设置。"
+		text = "使用帮助\n\n新成员\n点击群内入群提示的验证按钮，进入私聊后按题目提示作答。无需在群里发命令；链接失效或找不到提示，请联系群管理员。\n\n群管理员\n点击「我的群组」选择群，再用按钮设置新人验证、审核规则和关键词回复。也可以在目标群发送 /settings 直达该群设置。\n\n接入新群\n把机器人设为群管理员，并授予删除消息、限制成员权限；联系机器人管理员批准接入后，群管理才会启用。\n\n模型接口和机器人超级管理员由机器人管理员在网页后台设置。"
 		if s.IsSuperAdmin(m.From.ID) {
 			text += "\n\n机器人超级管理员\n私聊 /approve 群ID 批准接入；/reject 群ID 拒绝；/revoke 群ID 撤销授权。命令后可附原因。"
 		}

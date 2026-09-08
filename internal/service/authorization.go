@@ -17,11 +17,15 @@ func (s *Service) AuthorizationNotice(ctx context.Context, chat int64) error {
 	if !ok {
 		return nil
 	}
-	return s.text(ctx, chat, fmt.Sprintf("本群尚未获准使用机器人（待审批、已拒绝或已撤销）。群组 ID：%d。请联系部署者在网页后台「群组列表」审批；群主身份不能代替机器人授权。", chat))
+	status, e := s.Store.GroupAuthorizationStatus(ctx, chat)
+	if e != nil {
+		return e
+	}
+	return s.text(ctx, chat, authorizationMessage(chat, status))
 }
 func (s *Service) authorizationCommand(ctx context.Context, m domain.Message, command, arg string) error {
 	if !s.IsSuperAdmin(m.From.ID) {
-		return s.text(ctx, m.Chat.ID, "只有机器人超级管理员可以审批群组。部署者可在网页后台操作。")
+		return s.text(ctx, m.Chat.ID, "只有机器人超级管理员可以审批群组。机器人管理员可在网页后台操作。")
 	}
 	parts := strings.Fields(arg)
 	if len(parts) == 0 {
@@ -35,5 +39,17 @@ func (s *Service) authorizationCommand(ctx context.Context, m domain.Message, co
 	if e = s.Store.AuthorizeGroup(ctx, chat, m.From.ID, status, strings.Join(parts[1:], " ")); e != nil {
 		return s.text(ctx, m.Chat.ID, "审批失败："+e.Error())
 	}
-	return s.text(ctx, m.Chat.ID, fmt.Sprintf("群组 %d 审批状态：%s", chat, status))
+	label := map[string]string{"approved": "已批准", "rejected": "未通过审核", "revoked": "已暂停使用"}[status]
+	return s.text(ctx, m.Chat.ID, fmt.Sprintf("群组 %d：%s", chat, label))
+}
+
+func authorizationMessage(chat int64, status string) string {
+	title := "本群尚未获准使用机器人，正在等待审核。"
+	switch status {
+	case "rejected":
+		title = "本群的机器人使用申请未通过审核。"
+	case "revoked":
+		title = "本群的机器人使用权限已暂停。"
+	}
+	return fmt.Sprintf("%s\n请联系机器人管理员处理。\n群组 ID：%d", title, chat)
 }
