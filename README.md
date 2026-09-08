@@ -1,6 +1,6 @@
 # TG Guard Bot
 
-v1.10.5 简化 `/dc` 的查询说明。保留 MySQL、Redis 与配置的手动/每日备份。见 [备份与恢复](docs/backup-and-recovery.md) 和 [网页升级与 DC 查询](docs/web-upgrade-and-dc.md)。
+v1.10.6 为 `/dc` 查询结果增加用户昵称/姓名。保留 MySQL、Redis 与配置的手动/每日备份。见 [备份与恢复](docs/backup-and-recovery.md) 和 [网页升级与 DC 查询](docs/web-upgrade-and-dc.md)。
 
 基于 **Go 1.26.7 + MySQL 8.4 + Redis 8.6.2** 的 Telegram 智能群管机器人。以需求说明书第六十章的第一版 MVP 为交付范围，遵循“规则优先、AI 辅助、人工可干预”。
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"tgguard/internal/domain"
 	"tgguard/internal/telegram"
 	"time"
@@ -33,18 +34,47 @@ func (s *Service) dataCenter(ctx context.Context, m domain.Message, arg string) 
 	if !allowed {
 		return s.text(ctx, m.Chat.ID, "查询较频繁，请一分钟后再试。")
 	}
+	name := s.dataCenterName(ctx, m, target)
 	dc, e := s.Bot.UserPhotoDC(ctx, target)
 	if errors.Is(e, telegram.ErrDCUnavailable) {
-		return s.text(ctx, m.Chat.ID, fmt.Sprintf("用户 ID：%d\n暂时无法查询：没有机器人可见的头像，或头像格式暂不支持。\nTelegram 不提供直接查询账号归属 DC 的 Bot API。", target))
+		return s.text(ctx, m.Chat.ID, fmt.Sprintf("用户昵称/姓名：%s\n用户 ID：%d\n暂时无法查询：没有机器人可见的头像，或头像格式暂不支持。\nTelegram 不提供直接查询账号归属 DC 的 Bot API。", name, target))
 	}
 	if e != nil {
 		slog.Warn("DC photo lookup failed", "target_user_id", target, "requester_id", m.From.ID, "error", e)
 		return s.text(ctx, m.Chat.ID, "暂时无法读取该用户头像，请检查用户 ID，稍后重试。")
 	}
-	return s.text(ctx, m.Chat.ID, dataCenterReply(target, dc))
+	return s.text(ctx, m.Chat.ID, dataCenterReply(name, target, dc))
 }
 
-func dataCenterReply(user int64, dc int) string {
+func (s *Service) dataCenterName(ctx context.Context, m domain.Message, target int64) string {
+	var user domain.User
+	switch {
+	case m.From != nil && m.From.ID == target:
+		user = *m.From
+	case m.Reply != nil && m.Reply.From != nil && m.Reply.From.ID == target:
+		user = *m.Reply.From
+	default:
+		lookup, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		if err := s.Bot.Call(lookup, "getChat", map[string]any{"chat_id": target}, &user); err != nil {
+			slog.Debug("DC name lookup unavailable", "target_user_id", target, "error", err)
+			return "暂未获取"
+		}
+		if user.ID != target {
+			return "暂未获取"
+		}
+	}
+	name := strings.Join(strings.Fields(user.FirstName+" "+user.LastName), " ")
+	if name == "" && user.Username != "" {
+		name = "@" + strings.Join(strings.Fields(user.Username), "")
+	}
+	if name == "" {
+		return "暂未获取"
+	}
+	return name
+}
+
+func dataCenterReply(name string, user int64, dc int) string {
 	region := "未知地区"
 	switch dc {
 	case 1, 3:
@@ -54,5 +84,5 @@ func dataCenterReply(user int64, dc int) string {
 	case 5:
 		region = "新加坡"
 	}
-	return fmt.Sprintf("用户 ID：%d\n数据中心：DC%d\n地区：%s\n\n基于用户可见头像存储位置推测数据中心，仅供参考。", user, dc, region)
+	return fmt.Sprintf("用户昵称/姓名：%s\n用户 ID：%d\n数据中心：DC%d\n地区：%s\n\n基于用户可见头像存储位置推测数据中心，仅供参考。", name, user, dc, region)
 }
