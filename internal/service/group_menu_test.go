@@ -100,6 +100,8 @@ func TestMenuSettingIsExplicitAndScoped(t *testing.T) {
 func TestMyGroupsHidesOtherGroups(t *testing.T) {
 	db, mock, _ := sqlmock.New()
 	defer db.Close()
+	mock.ExpectQuery("SELECT chat_id,title FROM bot_groups").WithArgs(int64(0)).WillReturnRows(sqlmock.NewRows([]string{"chat_id", "title"}).AddRow(-1001, "我的群"))
+	mock.ExpectQuery("SELECT EXISTS").WillReturnRows(sqlmock.NewRows([]string{"ok"}).AddRow(true))
 	mock.ExpectQuery("SELECT chat_id,title FROM bot_groups").WithArgs(int64(0)).WillReturnRows(sqlmock.NewRows([]string{"chat_id", "title"}).AddRow(-1001, "我的群").AddRow(-1002, "其他人的群"))
 	mock.ExpectQuery("SELECT EXISTS").WillReturnRows(sqlmock.NewRows([]string{"ok"}).AddRow(true))
 	mock.ExpectQuery("SELECT EXISTS").WillReturnRows(sqlmock.NewRows([]string{"ok"}).AddRow(true))

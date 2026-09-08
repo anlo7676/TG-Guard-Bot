@@ -3,13 +3,14 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"tgguard/internal/domain"
 )
 
 func (s *Service) RegisterMenus(ctx context.Context) error {
-	common := []map[string]string{{"command": "verify", "description": "验证后解除禁言"}, {"command": "dc", "description": "查询用户头像数据中心"}, {"command": "groups", "description": "选择我管理的群组"}, {"command": "settings", "description": "选择群组并修改群设置"}, {"command": "rules", "description": "选择群组查看和调整审核规则"}, {"command": "stats", "description": "选择群组查看统计"}, {"command": "keywords", "description": "选择群组管理关键词回复"}, {"command": "whitelist", "description": "选择群组管理白名单"}, {"command": "blacklist", "description": "选择群组管理黑名单"}, {"command": "start", "description": "打开主菜单"}, {"command": "menu", "description": "群管理菜单"}, {"command": "id", "description": "查看我的 Telegram ID"}, {"command": "version", "description": "查看运行版本"}}
+	common := []map[string]string{{"command": "verify", "description": "验证后解除禁言"}, {"command": "dc", "description": "查询数据中心"}, {"command": "start", "description": "打开主菜单"}, {"command": "menu", "description": "打开个人菜单"}, {"command": "id", "description": "查看我的 Telegram ID"}}
 	if e := s.Bot.Call(ctx, "setMyCommands", map[string]any{"commands": common, "scope": map[string]string{"type": "all_private_chats"}}, nil); e != nil {
 		return e
 	}
@@ -27,26 +28,29 @@ func (s *Service) Home(ctx context.Context, m domain.Message) error {
 	if m.From == nil || m.Chat.Type != "private" || m.Chat.ID != m.From.ID {
 		return nil
 	}
-	role := "按所在群管理员权限管理已授权群组"
+	manage, err := s.canManageGroups(ctx, m.From.ID)
+	role := "普通用户"
+	if err != nil {
+		slog.Warn("private menu permission lookup failed", "user_id", m.From.ID, "error", err)
+		role = "群管理权限暂未确认"
+	}
+	if manage {
+		role = "群管理员"
+	}
 	if s.IsSuperAdmin(m.From.ID) {
 		role = "机器人管理员"
 	}
 	text := fmt.Sprintf("TG Guard · 智能群管理\n\n你好，%s。\n当前身份：%s\n\n请选择下方功能。新人可点击下方自助验证，或从群内验证链接进入。", m.From.FirstName, role)
-	markup := map[string]any{"inline_keyboard": [][]map[string]string{
-		{{"text": "📋 我的群组 / 群设置", "callback_data": "menu:groups"}},
-		{{"text": "✅ 自助验证 / 解除禁言", "callback_data": "menu:verify"}},
-		{{"text": "👤 我的身份", "callback_data": "menu:profile"}},
-		{{"text": "➕ 添加到群组", "url": "https://t.me/" + s.Bot.Username + "?startgroup=true"}, {"text": "📖 使用帮助", "callback_data": "menu:help"}},
-	}}
-	if s.IsSuperAdmin(m.From.ID) {
-		markup["inline_keyboard"] = append(markup["inline_keyboard"].([][]map[string]string), []map[string]string{{"text": "管理后台", "callback_data": "menu:panel"}})
-	}
+	markup := map[string]any{"inline_keyboard": privateHomeRows(manage, s.IsSuperAdmin(m.From.ID), s.Bot.Username)}
 	_, e := s.Bot.Send(ctx, m.Chat.ID, text, markup, 0)
 	return e
 }
 func (s *Service) PrivateSection(ctx context.Context, m domain.Message, section string) error {
 	if m.From == nil || m.Chat.Type != "private" || m.Chat.ID != m.From.ID {
 		return nil
+	}
+	if (section == "panel" || section == "admins" || section == "ai") && !s.IsSuperAdmin(m.From.ID) {
+		return s.text(ctx, m.Chat.ID, "此功能仅供机器人管理员使用。普通成员可在主菜单进行自助验证。")
 	}
 	panel := "后台地址尚未设置，请联系机器人管理员获取。"
 	if s.Runtime != nil && s.Runtime.Snapshot().PanelURL != "" {
@@ -60,10 +64,17 @@ func (s *Service) PrivateSection(ctx context.Context, m domain.Message, section 
 		return s.MyGroups(ctx, m, 0)
 	case "profile":
 		role := "普通用户"
+		manage, err := s.canManageGroups(ctx, m.From.ID)
+		if err != nil {
+			return s.text(ctx, m.Chat.ID, "暂时无法确认群管理权限，请稍后重试。")
+		}
+		if manage {
+			role = "群管理员"
+		}
 		if s.IsSuperAdmin(m.From.ID) {
 			role = "机器人管理员"
 		}
-		text = fmt.Sprintf("我的身份\n\nTelegram ID：%d\n身份：%s\n\n要成为机器人管理员，请将此 ID 提供给现有机器人管理员，由其添加权限。", m.From.ID, role)
+		text = fmt.Sprintf("我的身份\n\nTelegram ID：%d\n身份：%s", m.From.ID, role)
 	case "panel":
 		text = "管理面板\n\n" + panel + "\n\n后台需要管理员登录凭据。若地址无法访问，请联系机器人管理员确认。"
 	case "admins":
@@ -71,6 +82,13 @@ func (s *Service) PrivateSection(ctx context.Context, m domain.Message, section 
 	case "ai":
 		text = "AI 接口设置\n\n在 Web 面板 → AI 接口填写：\n• API Base URL（含 /v1）\n• 模型名称\n• API Key\n\n保存并启用全局 AI 后，还需到「群管理」打开目标群的 AI 审核。Key 加密保存，不通过私聊显示。\n后台：" + panel
 	case "help":
+		manage, err := s.canManageGroups(ctx, m.From.ID)
+		if err != nil {
+			return s.text(ctx, m.Chat.ID, "暂时无法确认群管理权限，请稍后重试。")
+		}
+		if !manage {
+			return s.groupMenuSend(ctx, m.Chat.ID, "使用帮助\n\n• 新人入群：点击群内验证链接，按题目提示完成验证。\n• 解除禁言：点击「自助验证」或私聊 /verify，选择群组后完成验证；成功解禁不发送欢迎语。\n• /dc 查询数据中心；/id 查看自己的 Telegram ID。\n• 封禁或已离群请联系群管理员。", [][]menuButton{{button("自助验证 / 解除禁言", "menu:verify"), button("主菜单", "menu:home")}})
+		}
 		text = "使用帮助\n\n新成员\n点击群内入群提示的验证按钮，进入私聊后按题目提示作答。无需在群里发命令；被禁言可点击主菜单「自助验证」重新验证并恢复发言；自助解禁不发送欢迎语。\n\n群管理员\n点击「我的群组」选择群，再用按钮设置新人验证、审核规则和关键词回复。也可以在目标群发送 /settings 直达该群设置。\n\n接入新群\n把机器人设为群管理员，并授予删除消息、限制成员权限；联系机器人管理员批准接入后，群管理才会启用。\n\n模型接口和机器人超级管理员由机器人管理员在网页后台设置。"
 		if s.IsSuperAdmin(m.From.ID) {
 			text += "\n\n机器人超级管理员\n私聊 /approve 群ID 批准接入；/reject 群ID 拒绝；/revoke 群ID 撤销授权。命令后可附原因。"

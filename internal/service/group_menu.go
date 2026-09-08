@@ -34,6 +34,13 @@ func (s *Service) MyGroups(ctx context.Context, m domain.Message, before int64, 
 	if m.From == nil || m.Chat.Type != "private" || m.Chat.ID != m.From.ID {
 		return nil
 	}
+	manage, err := s.canManageGroups(ctx, m.From.ID)
+	if err != nil {
+		return s.text(ctx, m.Chat.ID, "暂时无法确认群管理权限，请稍后重试。")
+	}
+	if !manage {
+		return s.Home(ctx, m)
+	}
 	groups, err := s.Store.MenuGroups(ctx, before)
 	if err != nil {
 		return err

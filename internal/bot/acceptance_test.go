@@ -639,7 +639,7 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			t.Fatal(e)
 		}
 		text = fmt.Sprint(lastSend()["text"])
-		if !strings.Contains(text, "使用帮助") || strings.Contains(text, "/approve") || strings.Contains(text, "/verify") {
+		if !strings.Contains(text, "使用帮助") || strings.Contains(text, "/approve") || !strings.Contains(text, "/verify") || strings.Contains(text, "我的群组") {
 			t.Fatal("wrong private help", text)
 		}
 		if e := svc.Command(ctx, 983, message("/verify", 77), "verify", ""); e != nil {

@@ -18,12 +18,12 @@ func TestPrivateHomeHasInteractiveMenu(t *testing.T) {
 			t.Fatal(e)
 		}
 		b, _ := json.Marshal(in)
-		for _, needle := range []string{"inline_keyboard", "menu:profile", "menu:groups"} {
+		for _, needle := range []string{"inline_keyboard", "menu:profile", "menu:verify"} {
 			if !strings.Contains(string(b), needle) {
 				t.Error("missing", needle)
 			}
 		}
-		for _, needle := range []string{"menu:admins", "menu:ai", "menu:panel"} {
+		for _, needle := range []string{"menu:admins", "menu:ai", "menu:panel", "menu:groups", "startgroup"} {
 			if strings.Contains(string(b), needle) {
 				t.Error("ordinary group administrator saw deployment menu", needle)
 			}
@@ -43,6 +43,22 @@ func TestMenuDoesNotAcceptAnotherUsersPrivateChat(t *testing.T) {
 	}
 }
 
+func TestPrivateHomeRowsMatchRole(t *testing.T) {
+	for _, tc := range []struct{ manage, super bool }{{false, false}, {true, false}, {true, true}} {
+		b, err := json.Marshal(privateHomeRows(tc.manage, tc.super, "testbot"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(b)
+		if strings.Contains(text, "menu:groups") != tc.manage || strings.Contains(text, "menu:panel") != tc.super {
+			t.Fatal("wrong menu visibility", tc, text)
+		}
+		if !strings.Contains(text, "menu:verify") {
+			t.Fatal("missing personal verification")
+		}
+	}
+}
+
 func TestRegisteredGroupMenusDoNotOfferVerificationCommand(t *testing.T) {
 	scopes := map[string]bool{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -54,6 +70,12 @@ func TestRegisteredGroupMenusDoNotOfferVerificationCommand(t *testing.T) {
 			scope := in["scope"].(map[string]any)["type"].(string)
 			scopes[scope] = true
 			for _, raw := range in["commands"].([]any) {
+				if scope == "all_private_chats" {
+					switch raw.(map[string]any)["command"] {
+					case "groups", "settings", "rules", "stats", "keywords", "whitelist", "blacklist":
+						t.Error("management command leaked into private default menu")
+					}
+				}
 				if scope == "all_group_chats" && raw.(map[string]any)["command"] == "id" {
 					t.Error("ID utility leaked into member menu")
 				}
