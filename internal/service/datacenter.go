@@ -41,5 +41,18 @@ func (s *Service) dataCenter(ctx context.Context, m domain.Message, arg string) 
 		slog.Warn("DC photo lookup failed", "target_user_id", target, "requester_id", m.From.ID, "error", e)
 		return s.text(ctx, m.Chat.ID, "暂时无法读取该用户头像，请检查用户 ID，稍后重试。")
 	}
-	return s.text(ctx, m.Chat.ID, fmt.Sprintf("用户 ID：%d\n头像数据中心：DC%d\n这是当前可见头像的存储位置，不代表账号归属或用户所在地。", target, dc))
+	return s.text(ctx, m.Chat.ID, dataCenterReply(target, dc))
+}
+
+func dataCenterReply(user int64, dc int) string {
+	region := "未知地区"
+	switch dc {
+	case 1, 3:
+		region = "美国 · 迈阿密"
+	case 2, 4:
+		region = "荷兰 · 阿姆斯特丹"
+	case 5:
+		region = "新加坡"
+	}
+	return fmt.Sprintf("用户 ID：%d\n数据中心：DC%d\n地区（参考）：%s\n\n基于用户可见头像存储位置推测数据中心，仅供参考，不能确认账号归属或用户所在地。", user, dc, region)
 }

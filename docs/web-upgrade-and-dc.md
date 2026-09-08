@@ -11,6 +11,8 @@
 
 参考：[Telegram 头像 DC 字段定义](https://core.telegram.org/constructor/userProfilePhoto)、[Telegram Bot API](https://core.telegram.org/bots/api#getuserprofilephotos)。
 
+v1.10.3 起回复使用“数据中心：DC5”“地区（参考）：新加坡”。地区映射为 DC1/3 美国迈阿密、DC2/4 荷兰阿姆斯特丹、DC5 新加坡，参考 [Hydrogram 数据中心文档](https://github.com/hydrogram/hydrogram/blob/dev/docs/source/faq/what-are-the-ip-addresses-of-telegram-data-centers.rst)。这是静态参考映射，不是用户定位；存储可能迁移，不能把可见头像 DC 当作已确认的账号归属。
+
 ## 第一次启用网页升级
 
 旧服务器先在服务器管理菜单选择「更新到最新版本」。本版 Linux root/sudo + systemd 安装会在服务健康后自动安装升级服务；如未自动启用，在服务器菜单选择「8. 启用网页升级」。之后在网页左侧「系统升级」完成检查、确认和查看结果。

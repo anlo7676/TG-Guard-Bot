@@ -1,4 +1,8 @@
 'use strict';
+function upgradeTime(value){
+ if(!value||String(value).startsWith('0001-'))return '';
+ const date=new Date(value);return Number.isFinite(date.getTime())?date.toLocaleString('zh-CN'):'';
+}
 async function updates(){
  const status=await api('/api/v1/upgrades');
  const busy=['queued','running'].includes(status.job.phase);
@@ -7,7 +11,7 @@ async function updates(){
  return {html,bind:()=>{
   const request=state.request;
   const active=()=>state.page==='updates'&&state.request===request&&!$('#app').hidden;
-  const progress=(job)=>{$('#upgrade-progress').textContent=`${job.message}${job.version?' · '+job.version:''}${job.updated_at?' · '+new Date(job.updated_at).toLocaleString('zh-CN'):''}`};
+  const progress=(job)=>{const when=upgradeTime(job.updated_at);$('#upgrade-progress').textContent=`${job.message}${job.version?' · '+job.version:''}${when?' · '+when:''}`};
   let retries=0;
   const poll=async()=>{if(!active())return;try{const s=await api('/api/v1/upgrades');if(!active())return;progress(s.job);if(s.current!==status.current){render();return}if(['queued','running'].includes(s.job.phase)){setTimeout(poll,3000)}else{toast(s.job.message,s.job.phase==='failed');$('#check-upgrade').disabled=false}}catch(e){if(!active())return;$('#upgrade-progress').textContent='服务正在切换或暂时无法连接，正在重新连接…';if(++retries<120)setTimeout(poll,5000)}};
   progress(status.job);if(busy)setTimeout(poll,3000);

@@ -55,3 +55,17 @@ func TestDCCommandTargetsAndUnavailable(t *testing.T) {
 		t.Fatal(messages)
 	}
 }
+
+func TestDataCenterReplyRegionsAndLimits(t *testing.T) {
+	for dc, region := range map[int]string{1: "美国 · 迈阿密", 2: "荷兰 · 阿姆斯特丹", 3: "美国 · 迈阿密", 4: "荷兰 · 阿姆斯特丹", 5: "新加坡", 6: "未知地区"} {
+		got := dataCenterReply(42, dc)
+		for _, want := range []string{"用户 ID：42", "数据中心：DC", region, "可见头像存储位置", "不能确认账号归属"} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("DC%d missing %q: %s", dc, want, got)
+			}
+		}
+		if strings.Contains(got, "头像数据中心：") {
+			t.Fatal(got)
+		}
+	}
+}

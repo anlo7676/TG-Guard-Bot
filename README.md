@@ -1,6 +1,6 @@
 # TG Guard Bot
 
-v1.10.2 避免最新版本重复部署：代码、运行版本和健康检查全部一致时直接退出；未完成的更新仍会重新部署。修正登录链接获取失败的状态提示。保留 `/dc` 头像数据中心查询和网页「系统升级」。升级方式与功能边界见 [网页升级与 DC 查询](docs/web-upgrade-and-dc.md)，旧版本安全配置变化见 [安全与升级说明](docs/security-and-upgrade.md)。
+v1.10.3 新增 MySQL、Redis 与配置的手动/每日备份，修复空升级任务日期，并为 `/dc` 增加参考地区。见 [备份与恢复](docs/backup-and-recovery.md) 和 [网页升级与 DC 查询](docs/web-upgrade-and-dc.md)。
 
 基于 **Go 1.26.7 + MySQL 8.4 + Redis 8.6.2** 的 Telegram 智能群管机器人。以需求说明书第六十章的第一版 MVP 为交付范围，遵循“规则优先、AI 辅助、人工可干预”。
 

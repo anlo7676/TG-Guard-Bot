@@ -38,7 +38,7 @@ services:
       retries: 20
     networks: [backend]
   app:
-    image: tg-guard:1.10.2
+    image: tg-guard:1.10.3
     logging: *default-logging
     build: .
     restart: unless-stopped

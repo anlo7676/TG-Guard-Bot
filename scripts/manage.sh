@@ -34,8 +34,8 @@ configure_access() {
 
 while true; do
   printf '\n========== TG Guard 管理菜单 ==========\n'
-  printf '1. 安装 / 启动（保留配置和数据）\n2. 开启 IP 访问 / 修改访问地址\n3. 切回仅本机访问\n4. 获取后台登录链接\n5. 更新到最新版本\n6. 查看运行状态\n7. 查看最近日志\n8. 启用网页升级\n0. 退出\n'
-  read -r -p '请选择 [0-8]：' choice || exit 0
+  printf '1. 安装 / 启动（保留配置和数据）\n2. 开启 IP 访问 / 修改访问地址\n3. 切回仅本机访问\n4. 获取后台登录链接\n5. 更新到最新版本\n6. 查看运行状态\n7. 查看最近日志\n8. 启用网页升级\n9. 立即备份\n10. 启用每日自动备份\n0. 退出\n'
+  read -r -p '请选择 [0-10]：' choice || exit 0
   case "$choice" in
     1) bash scripts/deploy.sh || echo '启动未完成，请查看上方错误。';;
     2) configure_access 0.0.0.0 || echo '访问设置未完成。';;
@@ -45,7 +45,9 @@ while true; do
     6) docker compose --env-file .env ps || echo '无法读取状态，请检查 Docker。';;
     7) docker compose --env-file .env logs --tail 60 app || echo '无法读取日志。';;
     8) bash scripts/setup-updater.sh || echo '网页升级未启用，请检查上方提示。';;
+    9) bash scripts/backup.sh || echo '备份失败，请查看上方错误；已有备份保留。';;
+    10) bash scripts/backup.sh --install || echo '自动备份未启用，请检查上方提示。';;
     0) exit 0;;
-    *) echo '请输入 0 到 8。';;
+    *) echo '请输入 0 到 10。';;
   esac
 done

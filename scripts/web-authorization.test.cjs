@@ -93,3 +93,9 @@ test('upgrade page explains unavailable agent and restricted operator',async()=>
  vm.runInContext("api=async()=>({current:'1.9.0',enabled:false,can_upgrade:true,job:{phase:'idle'}})",h.ctx);let view=await vm.runInContext('updates()',h.ctx);assert.match(view.html,/启用网页升级/);
  vm.runInContext("api=async()=>({current:'1.9.0',enabled:true,can_upgrade:false,job:{phase:'idle'}})",h.ctx);view=await vm.runInContext('updates()',h.ctx);assert.match(view.html,/恢复密钥/);
 });
+
+test('upgrade timestamps omit zero and invalid dates',()=>{
+ const h=setup();vm.runInContext(fs.readFileSync(path.join(__dirname,'../internal/api/web/updates.js'),'utf8'),h.ctx);
+ for(const value of [undefined,null,'','0001-01-01T00:00:00Z','invalid']){h.ctx.testDate=value;assert.equal(vm.runInContext('upgradeTime(testDate)',h.ctx),'');}
+ h.ctx.testDate='2026-09-08T00:00:00Z';assert.notEqual(vm.runInContext('upgradeTime(testDate)',h.ctx),'');
+});

@@ -19,6 +19,8 @@ node --test scripts/release.test.cjs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 node --test scripts/setup-updater.test.cjs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+node --test scripts/backup.test.cjs
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 go vet ./...
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($Race) { go test -race -count=1 ./... } else { go test -count=1 ./... }

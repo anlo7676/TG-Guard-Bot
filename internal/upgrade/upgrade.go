@@ -78,7 +78,7 @@ type Job struct {
 	Version string    `json:"version"`
 	Phase   string    `json:"phase"`
 	Message string    `json:"message"`
-	Updated time.Time `json:"updated_at"`
+	Updated time.Time `json:"updated_at,omitzero"`
 }
 type Queue struct{ Dir string }
 
