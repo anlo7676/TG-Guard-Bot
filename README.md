@@ -31,7 +31,7 @@ sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/anlo7676/TG-Guard-B
 
 脚本自动检查依赖，按需通过 [Docker 官方软件源](https://docs.docker.com/engine/install/ubuntu/#install-using-the-apt-repository) 安装 Docker 和 Compose，下载项目到 `/opt/tg-guard`，再提示输入 **Bot Token**。数据库、Redis、密码、加密密钥及后台登录入口自动配置。
 
-**更新也执行同一条命令。** 保留 `.env` 和 Docker 数据卷，仓库有本地修改或无法快进时停止更新。其他 Linux 发行版需先自行安装 Docker、Compose、git、curl、openssl。远程后台访问仍使用下文的 SSH 端口转发；不会直接开放管理后台到公网。
+**执行后进入中文管理菜单，选择“安装 / 启动”开始安装，选择“更新到最新版本”执行更新。** 保留 `.env` 和 Docker 数据卷，仓库有本地修改或无法快进时停止更新。其他 Linux 发行版需先自行安装 Docker、Compose、git、curl、openssl。远程后台访问仍使用下文的 SSH 端口转发；不会直接开放管理后台到公网。
 
 ## 下载源码后部署（Windows / Linux / macOS）
 
@@ -247,3 +247,14 @@ scripts/               Windows UTF-8 运行和测试脚本
 默认仅本机访问。需要 IP 直连时，在 `/opt/tg-guard/.env` 添加或修改 `PANEL_BIND=0.0.0.0`，可选设置 `PANEL_HOST=服务器公网IP`，然后执行 `bash scripts/deploy.sh`。浏览器打开 `http://服务器公网IP:8080`，使用新生成的登录链接或 `.env` 中的 `ADMIN_API_TOKEN` 登录。云安全组和服务器防火墙需允许你的 IP 访问 TCP 8080。
 
 公网 HTTP 不加密，长期使用建议配置 HTTPS；MySQL 和 Redis 仍不公开端口。后台「机器人管理员」中的地址仅用于机器人菜单展示，不会修改端口监听。
+
+## 服务器管理菜单
+
+重复执行一行安装命令即可打开中文菜单；已安装后也可直接执行 `sudo bash /opt/tg-guard/scripts/manage.sh`。
+
+- 选择 **2**：开启 IP 访问 / 修改地址，输入公网 IPv4 或域名即可保存并应用。
+- 选择 **3**：切回仅本机访问。
+- 选择 **4**：生成新的后台登录链接，不重启或构建服务。
+- 选择 **5 / 6 / 7**：更新、查看状态、查看最近日志。
+
+菜单只修改后台访问设置，保留 Token、数据库密码和数据卷。IP 访问仍需安全组和防火墙放行；不会自动修改系统防火墙。

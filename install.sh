@@ -64,7 +64,11 @@ main() {
     git clone --branch main --single-branch https://github.com/anlo7676/TG-Guard-Bot.git "$target"
   fi
   echo "项目目录：$target；配置和数据将保留。"
-  bash "$target/scripts/deploy.sh"
+  if [[ "${1:-}" == --deploy || ! -f "$target/scripts/manage.sh" ]]; then
+    bash "$target/scripts/deploy.sh"
+  else
+    bash "$target/scripts/manage.sh"
+  fi
 }
 
 if [[ "${BASH_SOURCE[0]:-}" == "$0" || -z "${BASH_SOURCE[0]:-}" ]]; then main "$@"; fi

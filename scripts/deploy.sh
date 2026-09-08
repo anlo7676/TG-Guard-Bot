@@ -6,6 +6,9 @@ for command in docker openssl curl; do
 done
 docker compose version >/dev/null
 docker info >/dev/null 2>&1 || { echo 'Docker 未启动或当前用户无访问权限。' >&2; exit 1; }
+mode=${1:-deploy}
+[[ "$mode" == deploy || "$mode" == --panel-only ]] || { echo '不支持的参数。'; exit 1; }
+if [[ "$mode" == --panel-only && ! -f .env ]]; then echo '请先安装并启动服务。'; exit 1; fi
 if [[ ! -f .env ]]; then
   read -r -s -p '请输入 Bot Token（输入隐藏）：' bot_token
   printf '\n'
@@ -43,8 +46,10 @@ for key in BOT_TOKEN ADMIN_API_TOKEN MYSQL_PASSWORD MYSQL_ROOT_PASSWORD REDIS_PA
   export "$key=$value"
 done
 unset value
-echo '正在构建并启动服务，首次拉取镜像可能需要几分钟……'
+if [[ "$mode" != --panel-only ]]; then
+echo '正在下载程序并启动服务，首次拉取镜像可能需要几分钟……'
 docker compose --env-file .env up -d --build --wait --wait-timeout 300
+fi
 # A short-lived ticket avoids displaying the permanent administrator credential.
 response=$(printf 'header = "Authorization: Bearer %s"\n' "$ADMIN_API_TOKEN" | curl --config - --fail --silent --show-error --max-time 15 -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8080/api/v1/panel-ticket)
 if [[ "$response" =~ \"ticket\":\"([A-Za-z0-9_-]+)\" ]]; then

@@ -41,6 +41,8 @@ jobs:
       - run: node --test scripts/web-authorization.test.cjs
       - run: bash -n scripts/deploy.sh
       - run: bash -n install.sh
+      - run: bash -n scripts/manage.sh
+      - run: node --test scripts/manage.test.cjs
       - run: node --test scripts/deploy.test.cjs
       - run: node --test scripts/install.test.cjs
       - run: go vet ./...
