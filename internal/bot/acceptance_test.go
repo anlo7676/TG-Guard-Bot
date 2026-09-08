@@ -2001,6 +2001,18 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			if err != nil || current.Status != "verified" || count("restrictChatMember") != before+1 {
 				t.Fatal(current, err)
 			}
+			history, err := db.View(ctx, store.ViewUserVerifications, g.ID, uid)
+			if err != nil || len(history) != 1 {
+				t.Fatal(history, err)
+			}
+			if history[0]["purpose"] != "self_unmute" || history[0]["unmute_status"] != "done" || history[0]["unmuted_at"] == nil {
+				t.Fatal("missing self unmute history", history)
+			}
+			for _, key := range []string{"token", "answer_hash", "question"} {
+				if _, exists := history[0][key]; exists {
+					t.Fatal("verification secret exposed", key)
+				}
+			}
 			mu.Lock()
 			for _, c := range calls[callStart:] {
 				if c.Method == "sendMessage" && fmt.Sprint(c.Body["chat_id"]) == fmt.Sprint(g.ID) {

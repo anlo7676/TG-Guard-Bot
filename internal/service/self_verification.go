@@ -137,6 +137,9 @@ func (s *Service) StartSelfVerification(ctx context.Context, m domain.Message, c
 		answer = strconv.FormatInt(x.Int64()+y.Int64()+2, 10)
 	}
 	v.AnswerHash = store.HashAnswer(v.Token, answer)
+	if err = s.Store.User(ctx, *m.From); err != nil {
+		return err
+	}
 	if err = s.Store.CreateSelfVerification(ctx, v); err != nil {
 		return err
 	}

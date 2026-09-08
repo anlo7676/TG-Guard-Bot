@@ -14,6 +14,17 @@ function setup(){
  vm.runInContext("state.groups=[{chat_id:-1001,title:'测试群'}]; api=async (path,options)=>{calls.push({path,options});if(testError)throw Error(testError)}; loadGroups=async()=>{};render=async()=>{};toast=()=>{};editAuthorization('-1001','approved');",ctx);
  return {ctx,get,reason,button,submit:()=>get('#authorization-form').onsubmit({preventDefault(){},submitter:button})};
 }
+
+test('verification history distinguishes self unmute and actual outcome safely',()=>{
+ const h=setup();
+ const html=vm.runInContext(`verificationHistoryTable([
+ {purpose:'self_unmute',user_id:42,display_name:'<script>x</script>',username:'alice',status:'verified',challenge_type:'math',attempts:1,unmute_status:'done',unmuted_at:'2026-09-08T12:00:00Z'},
+ {purpose:'self_unmute',user_id:43,status:'expired',challenge_type:'button',attempts:3},
+ {purpose:'join',user_id:44,status:'verified',challenge_type:'math',attempts:0}
+ ])`,h.ctx);
+ assert.match(html,/自助解禁/);assert.match(html,/新人入群验证/);assert.match(html,/本次解禁成功/);assert.match(html,/未执行解禁/);assert.match(html,/已过期/);
+ assert.ok(!html.includes('<script>'));assert.match(html,/&lt;script&gt;/);
+});
 test('opening and cancelling approval never submits or invokes native prompt',()=>{
  const h=setup();assert.match(h.get('#group-editor').innerHTML,/确认批准/);assert.equal(h.ctx.calls.length,0);
  h.get('#cancel-authorization').onclick();assert.equal(h.get('#group-editor').innerHTML,'');assert.equal(h.ctx.calls.length,0);

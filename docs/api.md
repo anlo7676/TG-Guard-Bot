@@ -17,12 +17,14 @@
 | GET | `/groups/{chat}/users?q=文本` | 按用户 ID、username、昵称查询已记录成员 |
 | GET | `/groups/{chat}/logs` | 审核记录、规则和 AI 结果 |
 | GET | `/groups/{chat}/punishments` | 处罚计划、执行步骤、状态和错误 |
-| GET | `/groups/{chat}/verifications` | 最近 100 条验证记录，不包含 Token 或答案 |
+| GET | `/groups/{chat}/verifications` | 最近 100 条入群验证和自助解禁记录，不包含 Token 或答案 |
 | GET | `/groups/{chat}/audits` | 群设置、名单、关键词等管理变更审计 |
 | POST | `/groups/{chat}/feedback` | 记录误判反馈 |
 | GET | `/queue/dead` | 重试耗尽的 Update 元数据，不返回原始消息负载 |
 
 `chat` 必须为负数 Telegram 超级群 ID；只有名单接口允许 `chat=0` 表示全局名单。通用列表上限 100，可用 `?before=上一页最小ID` 翻页；群列表用 `chat_id`，用户列表用 `user_id`，死信用 `update_id`。关键词列表返回该群全部规则，验证列表仅最近 100 条。列表中的 MySQL JSON 列以 JSON 字符串返回，前端按需解析；群设置和关键词是结构化 JSON。
+
+验证记录的 `purpose` 为 `join`（新人入群验证）或 `self_unmute`（自助解禁）；`status` 是验证状态，`unmute_status` 是对应解禁操作的状态。只有实际解禁成功时才返回 `unmuted_at`；该时间是历史操作完成时间，不代表用户当前仍未被禁言。`username`、`display_name` 为已记录的用户信息，未记录时可能为空；`last_error`、`unmute_error` 分别表示验证流程和解禁操作的错误。成员详情中的验证记录返回相同字段。
 
 不存在独立 `/rules` 写接口：使用群设置的 `rules` 对象修改规则；AI Provider 连接信息通过 `/system` 配置并加密持久化。
 
