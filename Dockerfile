@@ -5,7 +5,7 @@ RUN (timeout 180 apk add --no-cache ca-certificates tzdata \
 
 FROM runtime-base AS download
 ARG TARGETARCH
-ARG RELEASE_VERSION=v1.10.3
+ARG RELEASE_VERSION=v1.10.4
 RUN case "$TARGETARCH" in amd64|arm64) ;; *) echo "Unsupported architecture: $TARGETARCH"; exit 1;; esac \
     && mkdir /out && cd /out \
     && base="https://github.com/anlo7676/TG-Guard-Bot/releases/download/${RELEASE_VERSION}" \

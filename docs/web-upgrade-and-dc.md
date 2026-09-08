@@ -11,7 +11,7 @@
 
 参考：[Telegram 头像 DC 字段定义](https://core.telegram.org/constructor/userProfilePhoto)、[Telegram Bot API](https://core.telegram.org/bots/api#getuserprofilephotos)。
 
-v1.10.3 起回复使用“数据中心：DC5”“地区（参考）：新加坡”。地区映射为 DC1/3 美国迈阿密、DC2/4 荷兰阿姆斯特丹、DC5 新加坡，参考 [Hydrogram 数据中心文档](https://github.com/hydrogram/hydrogram/blob/dev/docs/source/faq/what-are-the-ip-addresses-of-telegram-data-centers.rst)。这是静态参考映射，不是用户定位；存储可能迁移，不能把可见头像 DC 当作已确认的账号归属。
+v1.10.3 起回复使用“数据中心：DC5”“地区：新加坡”。地区映射为 DC1/3 美国迈阿密、DC2/4 荷兰阿姆斯特丹、DC5 新加坡，参考 [Hydrogram 数据中心文档](https://github.com/hydrogram/hydrogram/blob/dev/docs/source/faq/what-are-the-ip-addresses-of-telegram-data-centers.rst)。这是静态参考映射，不是用户定位；存储可能迁移，不能把可见头像 DC 当作已确认的账号归属。
 
 ## 第一次启用网页升级
 
