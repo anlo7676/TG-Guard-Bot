@@ -53,6 +53,17 @@ func reviewActions(p store.Punishment) []struct{ label, action string } {
 	return append(actions, struct{ label, action string }{"标记误判", "false"}, struct{ label, action string }{"加入白名单", "white"})
 }
 func (s *Service) Callback(ctx context.Context, c domain.Callback) error {
+	if strings.HasPrefix(c.Data, "sv:") {
+		if c.Message == nil || c.Message.Chat.Type != "private" || c.Message.Chat.ID != c.From.ID {
+			return nil
+		}
+		if err := s.Bot.AnswerCallback(ctx, c.ID, ""); err != nil {
+			return err
+		}
+		m := *c.Message
+		m.From = &c.From
+		return s.SelfVerification(ctx, m, strings.TrimPrefix(c.Data, "sv:"))
+	}
 	if strings.HasPrefix(c.Data, "menu:") || strings.HasPrefix(c.Data, "gm:") || strings.HasPrefix(c.Data, "gmc:") {
 		return s.MenuCallback(ctx, c)
 	}

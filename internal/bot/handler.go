@@ -24,6 +24,9 @@ func (h *Handler) Handle(ctx context.Context, u domain.Update) error {
 		return s.BotMembership(ctx, *u.MyMember)
 	case u.Member != nil:
 		m := u.Member
+		if err := s.ObserveVerificationTakeover(ctx, *m); err != nil {
+			return err
+		}
 		if m.Old.Admin() != m.New.Admin() {
 			if e := s.State.R.Del(ctx, fmt.Sprintf("group:admins:%d", m.Chat.ID)).Err(); e != nil {
 				return e

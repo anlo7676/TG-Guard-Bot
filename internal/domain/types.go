@@ -77,6 +77,7 @@ func (m Member) Present() bool {
 }
 
 type MemberUpdate struct {
+	Date int64  `json:"date"`
 	Chat Chat   `json:"chat"`
 	From User   `json:"from"`
 	Old  Member `json:"old_chat_member"`

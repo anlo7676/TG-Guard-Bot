@@ -9,7 +9,7 @@ import (
 )
 
 func (s *Service) RegisterMenus(ctx context.Context) error {
-	common := []map[string]string{{"command": "dc", "description": "查询用户头像数据中心"}, {"command": "groups", "description": "选择我管理的群组"}, {"command": "settings", "description": "选择群组并修改群设置"}, {"command": "rules", "description": "选择群组查看和调整审核规则"}, {"command": "stats", "description": "选择群组查看统计"}, {"command": "keywords", "description": "选择群组管理关键词回复"}, {"command": "whitelist", "description": "选择群组管理白名单"}, {"command": "blacklist", "description": "选择群组管理黑名单"}, {"command": "start", "description": "打开主菜单"}, {"command": "menu", "description": "群管理菜单"}, {"command": "id", "description": "查看我的 Telegram ID"}, {"command": "version", "description": "查看运行版本"}}
+	common := []map[string]string{{"command": "verify", "description": "自助验证并解除验证禁言"}, {"command": "dc", "description": "查询用户头像数据中心"}, {"command": "groups", "description": "选择我管理的群组"}, {"command": "settings", "description": "选择群组并修改群设置"}, {"command": "rules", "description": "选择群组查看和调整审核规则"}, {"command": "stats", "description": "选择群组查看统计"}, {"command": "keywords", "description": "选择群组管理关键词回复"}, {"command": "whitelist", "description": "选择群组管理白名单"}, {"command": "blacklist", "description": "选择群组管理黑名单"}, {"command": "start", "description": "打开主菜单"}, {"command": "menu", "description": "群管理菜单"}, {"command": "id", "description": "查看我的 Telegram ID"}, {"command": "version", "description": "查看运行版本"}}
 	if e := s.Bot.Call(ctx, "setMyCommands", map[string]any{"commands": common, "scope": map[string]string{"type": "all_private_chats"}}, nil); e != nil {
 		return e
 	}
@@ -31,9 +31,10 @@ func (s *Service) Home(ctx context.Context, m domain.Message) error {
 	if s.IsSuperAdmin(m.From.ID) {
 		role = "机器人管理员"
 	}
-	text := fmt.Sprintf("TG Guard · 智能群管理\n\n你好，%s。\n当前身份：%s\n\n请选择下方功能。新人验证请从群内验证链接进入。", m.From.FirstName, role)
+	text := fmt.Sprintf("TG Guard · 智能群管理\n\n你好，%s。\n当前身份：%s\n\n请选择下方功能。新人可点击下方自助验证，或从群内验证链接进入。", m.From.FirstName, role)
 	markup := map[string]any{"inline_keyboard": [][]map[string]string{
 		{{"text": "📋 我的群组 / 群设置", "callback_data": "menu:groups"}},
+		{{"text": "✅ 自助验证 / 解除验证禁言", "callback_data": "menu:verify"}},
 		{{"text": "👤 我的身份", "callback_data": "menu:profile"}},
 		{{"text": "➕ 添加到群组", "url": "https://t.me/" + s.Bot.Username + "?startgroup=true"}, {"text": "📖 使用帮助", "callback_data": "menu:help"}},
 	}}
@@ -53,6 +54,8 @@ func (s *Service) PrivateSection(ctx context.Context, m domain.Message, section 
 	}
 	var text string
 	switch section {
+	case "verify":
+		return s.SelfVerificationMenu(ctx, m)
 	case "groups":
 		return s.MyGroups(ctx, m, 0)
 	case "profile":
@@ -68,7 +71,7 @@ func (s *Service) PrivateSection(ctx context.Context, m domain.Message, section 
 	case "ai":
 		text = "AI 接口设置\n\n在 Web 面板 → AI 接口填写：\n• API Base URL（含 /v1）\n• 模型名称\n• API Key\n\n保存并启用全局 AI 后，还需到「群管理」打开目标群的 AI 审核。Key 加密保存，不通过私聊显示。\n后台：" + panel
 	case "help":
-		text = "使用帮助\n\n新成员\n点击群内入群提示的验证按钮，进入私聊后按题目提示作答。无需在群里发命令；链接失效或找不到提示，请联系群管理员。\n\n群管理员\n点击「我的群组」选择群，再用按钮设置新人验证、审核规则和关键词回复。也可以在目标群发送 /settings 直达该群设置。\n\n接入新群\n把机器人设为群管理员，并授予删除消息、限制成员权限；联系机器人管理员批准接入后，群管理才会启用。\n\n模型接口和机器人超级管理员由机器人管理员在网页后台设置。"
+		text = "使用帮助\n\n新成员\n点击群内入群提示的验证按钮，进入私聊后按题目提示作答。无需在群里发命令；验证超时或找不到提示，可点击主菜单「自助验证」重新开始；仅适用于验证禁言。\n\n群管理员\n点击「我的群组」选择群，再用按钮设置新人验证、审核规则和关键词回复。也可以在目标群发送 /settings 直达该群设置。\n\n接入新群\n把机器人设为群管理员，并授予删除消息、限制成员权限；联系机器人管理员批准接入后，群管理才会启用。\n\n模型接口和机器人超级管理员由机器人管理员在网页后台设置。"
 		if s.IsSuperAdmin(m.From.ID) {
 			text += "\n\n机器人超级管理员\n私聊 /approve 群ID 批准接入；/reject 群ID 拒绝；/revoke 群ID 撤销授权。命令后可附原因。"
 		}

@@ -64,7 +64,7 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 		case "start", "menu":
 			return s.Home(ctx, m)
 		case "verify":
-			return s.text(ctx, m.Chat.ID, "新人验证无需发送命令。请回到群内，点击入群提示中的验证按钮，再按私聊题目提示完成验证。按钮失效或找不到提示时，请联系群管理员。")
+			return s.SelfVerificationMenu(ctx, m)
 		case "cancel":
 			return s.CancelGroupInput(ctx, m)
 		case "groups":

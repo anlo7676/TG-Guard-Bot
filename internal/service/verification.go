@@ -141,6 +141,9 @@ func (s *Service) StartVerification(ctx context.Context, m domain.Message, token
 		return s.text(ctx, m.Chat.ID, "这次验证已结束或由管理员接管。如仍无法发言，请联系群管理员处理。")
 	}
 	if v.Status != "pending" || time.Now().After(v.ExpiresAt) {
+		if v.FailAction == "mute" && (v.Status == "expired" || v.Status == "expiring" || v.Status == "pending") {
+			return s.SelfVerificationMenu(ctx, m)
+		}
 		return s.Say(ctx, m.Chat.ID, "zh_CN", "invalid_verify")
 	}
 	if ok, e := s.Store.GroupAuthorized(ctx, v.ChatID); e != nil {
@@ -180,7 +183,7 @@ func (s *Service) VerificationReply(ctx context.Context, m domain.Message) error
 		if !errors.Is(e, redis.Nil) {
 			return e
 		}
-		return s.text(ctx, m.Chat.ID, "这条操作提示已过期或不再有效。设置操作请重新打开对应菜单；入群验证请从群内最新验证链接进入。")
+		return s.text(ctx, m.Chat.ID, "这条操作提示已过期或不再有效。设置操作请重新打开对应菜单；入群验证请打开私聊主菜单的「自助验证」，或发送 /verify。")
 	}
 	return s.AnswerVerification(ctx, token, m.From.ID, strings.TrimSpace(m.Text), fmt.Sprintf("message:%d:%d", m.Chat.ID, m.ID))
 }
