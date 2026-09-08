@@ -57,7 +57,7 @@ pwsh -File scripts/deploy.ps1
 
 也可直接从仓库下载 ZIP 并解压，无需配置 Git SSH。
 
-首次只按提示输入 **Bot Token**。脚本生成数据库密码、后台凭据和独立加密密钥，保存到 `.env`，然后构建并启动全部服务，等待健康检查通过。Windows 自动打开后台；Linux 输出有效期 1 分钟的一次性登录地址。首次拉取镜像和构建需要几分钟，并需要网络可访问镜像仓库和 Telegram。
+首次只按提示输入 **Bot Token**。脚本生成数据库密码、后台凭据和独立加密密钥，保存到 `.env`，然后下载预编译程序并启动全部服务，等待健康检查通过。Windows 自动打开后台；Linux 输出有效期 1 分钟的一次性登录地址。首次拉取镜像和程序需要几分钟，并需要网络可访问镜像仓库和 Telegram。
 
 进入后台后：
 
@@ -233,3 +233,11 @@ scripts/               Windows UTF-8 运行和测试脚本
 `.gitignore` 排除环境配置、密钥文件、二进制、缓存、日志、备份、编辑器配置和会话附件；`.env.example` 保留用于部署。数据库迁移、测试和 `go.sum` 必须提交。
 
 `bin/` 保存运行文件、待发布构建及回滚文件，`tmp/` 保存构建缓存、PID 和运行日志。服务运行期间不要整目录清空；本地数据库备份统一放在 `backups/`。Docker 构建上下文也排除了本地配置、附件和产物。
+
+## 预编译发布
+
+默认 Dockerfile 从 GitHub Release 下载当前固定版本的 Linux amd64 / arm64 程序，校验 SHA-256 后装入 Alpine 运行镜像。服务器无需下载 Go 工具链或编译源码；MySQL、Redis 和原数据卷不变。下载失败会停止构建，不会自动退回耗时的源码编译。
+
+本地执行 `pwsh -File scripts/build-release.ps1` 可交叉编译两种架构，产物位于 Git 忽略的 `dist/`。推送版本标签后，Release 工作流使用 Go 1.26.2 测试、构建并上传程序和校验文件。二进制保存在 Release 附件中，不进入 Git 源码历史。
+
+源码构建入口保留为 `docker build -f Dockerfile.source -t tgguard:source .`。维护者发布新版时须同步应用版本和 Dockerfile 的 RELEASE_VERSION，再推送对应版本标签；普通用户重复执行一行安装命令即可更新。

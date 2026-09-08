@@ -1,0 +1,32 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.2'
+      - run: go test ./...
+      - run: go vet ./...
+      - name: Build Linux binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          version="${GITHUB_REF_NAME#v}"
+          built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="-s -w -X tgguard/internal/buildinfo.Version=$version -X tgguard/internal/buildinfo.Source=${GITHUB_SHA:0:12} -X tgguard/internal/buildinfo.BuiltAt=$built_at" -o "dist/tgguard-linux-$arch" ./cmd/tgguard
+          done
+          cd dist
+          sha256sum tgguard-linux-* > SHA256SUMS
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/tgguard-linux-* dist/SHA256SUMS --verify-tag --title "TG Guard $GITHUB_REF_NAME" --notes 'Linux amd64 / arm64 预编译程序及 SHA-256 校验文件。Docker 部署直接下载程序，无需服务器编译 Go。'

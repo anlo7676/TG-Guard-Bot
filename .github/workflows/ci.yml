@@ -49,4 +49,4 @@ jobs:
           TEST_MYSQL_DSN: root:test-password@tcp(127.0.0.1:3306)/tgguard_test?parseTime=true
           TEST_REDIS_ADDR: 127.0.0.1:6379
       - run: go build ./cmd/tgguard
-      - run: docker build -t tgguard:test .
+      - run: docker build -f Dockerfile.source -t tgguard:test .
