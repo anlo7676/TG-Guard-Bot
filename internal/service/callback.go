@@ -18,7 +18,7 @@ type ReviewAction struct {
 	UserID int64 `json:"user_id"`
 }
 
-func (s *Service) ReviewButtons(ctx context.Context, l store.Log) (any, error) {
+func (s *Service) ReviewButtons(ctx context.Context, l store.Log, outcome store.Punishment) (any, error) {
 	token, e := state.Token()
 	if e != nil {
 		return nil, e
@@ -27,10 +27,30 @@ func (s *Service) ReviewButtons(ctx context.Context, l store.Log) (any, error) {
 		return nil, e
 	}
 	row := []map[string]string{}
-	for _, a := range []struct{ label, action string }{{"删除", "delete"}, {"禁言", "mute"}, {"封禁", "ban"}, {"误判", "false"}, {"白名单", "white"}} {
+	for _, a := range reviewActions(outcome) {
 		row = append(row, map[string]string{"text": a.label, "callback_data": "r:" + token + ":" + a.action})
 	}
-	return map[string]any{"inline_keyboard": [][]map[string]string{row}}, nil
+	rows := [][]map[string]string{}
+	if len(row) > 2 {
+		rows = append(rows, row[:len(row)-2])
+	}
+	rows = append(rows, row[len(row)-2:])
+	return map[string]any{"inline_keyboard": rows}, nil
+}
+
+func reviewActions(p store.Punishment) []struct{ label, action string } {
+	actions := []struct{ label, action string }{}
+	done := p.Status == "done"
+	if !(done && p.Decision.Delete) {
+		actions = append(actions, struct{ label, action string }{"删除消息", "delete"})
+	}
+	if !(done && (p.Decision.Action == "mute" || p.Decision.Action == "ban")) {
+		actions = append(actions, struct{ label, action string }{"禁言用户", "mute"})
+	}
+	if !(done && p.Decision.Action == "ban") {
+		actions = append(actions, struct{ label, action string }{"封禁用户", "ban"})
+	}
+	return append(actions, struct{ label, action string }{"标记误判", "false"}, struct{ label, action string }{"加入白名单", "white"})
 }
 func (s *Service) Callback(ctx context.Context, c domain.Callback) error {
 	if strings.HasPrefix(c.Data, "menu:") || strings.HasPrefix(c.Data, "gm:") || strings.HasPrefix(c.Data, "gmc:") {

@@ -1876,11 +1876,15 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		target := domain.Message{ID: 99001, Chat: g, From: &domain.User{ID: 99110}, Text: "special sample"}
 		request := domain.Message{ID: 99002, Chat: g, From: &domain.User{ID: 42}, Reply: &target, Text: "/check"}
 		before := count("deleteMessage")
+		messagesBefore := count("sendMessage")
 		if e := svc.Review(ctx, 99002, request); e != nil {
 			t.Fatal(e)
 		}
 		if count("deleteMessage") != before+1 {
 			t.Fatal("manual ad was not deleted")
+		}
+		if count("sendMessage") != messagesBefore+1 {
+			t.Fatal("manual review should deliver one combined warning card")
 		}
 		var warnings int
 		if e := db.DB.QueryRow("SELECT COUNT(*) FROM punishments WHERE chat_id=? AND source='review' AND status='done' AND decision->>'$.action'='warn'", g.ID).Scan(&warnings); e != nil || warnings != 1 {

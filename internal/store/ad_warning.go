@@ -40,7 +40,7 @@ func (s *Store) UpdateLogDecision(ctx context.Context, l Log) error {
 func (s *Store) ReviewOutcome(ctx context.Context, l Log) (Punishment, error) {
 	var p Punishment
 	var raw []byte
-	err := s.DB.QueryRowContext(ctx, "SELECT status,decision FROM punishments WHERE chat_id=? AND user_id=? AND message_id=? AND source IN ('automatic','review') ORDER BY id DESC LIMIT 1", l.ChatID, l.UserID, l.MessageID).Scan(&p.Status, &raw)
+	err := s.DB.QueryRowContext(ctx, "SELECT event_key,status,decision FROM punishments WHERE chat_id=? AND user_id=? AND message_id=? AND source IN ('automatic','review') ORDER BY id DESC LIMIT 1", l.ChatID, l.UserID, l.MessageID).Scan(&p.EventKey, &p.Status, &raw)
 	if err == sql.ErrNoRows {
 		return p, nil
 	}

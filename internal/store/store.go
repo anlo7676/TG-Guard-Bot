@@ -403,6 +403,7 @@ func (s *Store) SaveLog(ctx context.Context, l Log) (Log, error) {
 }
 
 type Punishment struct {
+	EventKey                string
 	Decision                domain.Decision
 	Status                  string
 	Deleted, Acted, Started bool

@@ -1,6 +1,6 @@
 # TG Guard Bot
 
-v1.11.0 新增 `/check` 广告自动删除警告、相同内容重发禁言，并将默认 AI 触发分数设为 30。保留 MySQL、Redis 与配置的手动/每日备份。见 [备份与恢复](docs/backup-and-recovery.md) 和 [网页升级与 DC 查询](docs/web-upgrade-and-dc.md)。
+v1.11.1 将 `/check` 广告警告与审核结果合并为一张中文消息，并按实际处罚状态隐藏已完成的操作按钮。保留广告重发禁言、30 分 AI 复核及 MySQL、Redis 与配置的备份。见 [备份与恢复](docs/backup-and-recovery.md) 和 [网页升级与 DC 查询](docs/web-upgrade-and-dc.md)。
 
 基于 **Go 1.26.7 + MySQL 8.4 + Redis 8.6.2** 的 Telegram 智能群管机器人。以需求说明书第六十章的第一版 MVP 为交付范围，遵循“规则优先、AI 辅助、人工可干预”。
 

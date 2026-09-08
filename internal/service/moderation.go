@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"tgguard/internal/domain"
-	"tgguard/internal/i18n"
 	"tgguard/internal/rules"
 	"tgguard/internal/store"
 	"tgguard/internal/telegram"
@@ -226,7 +225,11 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 				return ce
 			}
 			l.Decision = d
-			e = s.Bot.Call(ctx, "sendMessage", map[string]any{"chat_id": l.ChatID, "text": warningNotice(l, u.User, settings, count), "parse_mode": "HTML"}, nil)
+			if l.Source == "review" && l.AI != nil {
+				e = s.sendReviewNotice(ctx, l, u.User, settings, store.Punishment{Status: "done", Decision: d}, 0)
+			} else {
+				e = s.Bot.Call(ctx, "sendMessage", map[string]any{"chat_id": l.ChatID, "text": warningNotice(l, u.User, settings, count), "parse_mode": "HTML"}, nil)
+			}
 		case "mute":
 			if d.Reason == "local_ad_review" {
 				e = s.executor().Restrict(ctx, l.ChatID, l.UserID, 0)
@@ -285,7 +288,12 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 		}
 	}
 	if d.Reason == "repeated_ad" {
-		if e = s.text(ctx, l.ChatID, fmt.Sprintf("用户 %d 再次发送已删除并警告的相同内容，原消息已删除，已禁言 %s。管理员可使用 /unmute %d 解除禁言。", l.UserID, warningDuration(d.Duration), l.UserID)); e != nil {
+		if l.Source == "review" && l.AI != nil {
+			e = s.sendReviewNotice(ctx, l, u.User, domain.Settings{}, store.Punishment{Status: "done", Decision: d}, 0)
+		} else {
+			e = s.text(ctx, l.ChatID, fmt.Sprintf("用户 %d 再次发送已删除并警告的相同内容，原消息已删除，已禁言 %s。管理员可使用 /unmute %d 解除禁言。", l.UserID, warningDuration(d.Duration), l.UserID))
+		}
+		if e != nil {
 			return e
 		}
 	}
@@ -436,17 +444,17 @@ func (s *Service) Review(ctx context.Context, update int64, m domain.Message) er
 	if e = s.Punish(ctx, l, m.From.ID); e != nil {
 		return e
 	}
-	if l.AI != nil {
-		a = *l.AI
-	}
 	outcome, e := s.Store.ReviewOutcome(ctx, l)
 	if e != nil {
 		return e
 	}
-	markup, e := s.ReviewButtons(ctx, l)
-	if e != nil {
-		return e
+	// The successful warning/repeat-mute already delivered the complete review card.
+	if outcome.EventKey == l.EventKey && outcome.Status == "done" && (outcome.Decision.Action == "warn" || outcome.Decision.Reason == "repeated_ad") {
+		return nil
 	}
-	_, e = s.Bot.Send(ctx, m.Chat.ID, i18n.Text(settings.Language, "ai_result", a.IsAd, a.Confidence*100, a.Category, a.Reason, a.RecommendedAction)+"\n处理状态："+reviewOutcomeText(outcome), markup, m.ID)
-	return e
+	u := domain.User{}
+	if target.From != nil {
+		u = *target.From
+	}
+	return s.sendReviewNotice(ctx, l, u, settings, outcome, m.ID)
 }
