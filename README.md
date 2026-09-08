@@ -106,7 +106,7 @@ Go 可执行程序本身只读环境变量；自动读取 `.env` 的入口是 Po
 
 ### 配置 AI
 
-打开 `http://127.0.0.1:8080`，使用 `.env` 的 `ADMIN_API_TOKEN` 登录，或运行 `scripts/open-panel.ps1` 一次性登录。私聊 `/start` 或 `/menu` 显示按钮菜单，`/id` 查询自己的数字 ID；在后台「机器人管理员」填写并保存 ID，立即获得跨群机器人命令权限。Telegram 群管理员仍在群设置中任命，Web 登录仍使用部署者凭据。
+打开 `http://127.0.0.1:8080`，使用 `.env` 的 `ADMIN_API_TOKEN` 登录，或运行 `scripts/open-panel.ps1` 一次性登录。私聊 `/start` 或 `/menu` 显示按钮菜单，`/id` 查询自己的数字 ID；在后台「机器人管理员」填写并保存 ID，立即获得跨群机器人命令权限。Telegram 群管理员仍在群设置中任命，Web 登录仍使用后台管理员凭据。
 
 后台「AI 接口」填写 Base URL（通常包含 `/v1`）、API Key、模型 ID，启用后保存；模型需支持 Chat Completions 和 `response_format=json_object`。输出限制参数可选择 `max_completion_tokens` 或 `max_tokens`。点击「测试已保存的连接」会产生一次实际模型请求。也可用环境变量提供首次默认配置。
 
@@ -163,7 +163,7 @@ $headers = @{ Authorization = "Bearer $env:ADMIN_API_TOKEN" }
 Invoke-RestMethod http://127.0.0.1:8080/api/v1/groups -Headers $headers
 ```
 
-API 支持 Bearer Token 和 HttpOnly Cookie 会话，Cookie 写操作需要 CSRF Token。`actor_id=0` 表示部署者操作；当前不提供独立多管理员 Web 账号或按群 Web 授权。所有 `/api/v1/` 请求均需鉴权、限流；不启用 CORS，不接受跨 Origin 写入。默认仅本机访问，手机远程使用需部署 HTTPS 反向代理。
+API 支持 Bearer Token 和 HttpOnly Cookie 会话，Cookie 写操作需要 CSRF Token。`actor_id=0` 表示后台管理员操作；当前不提供独立多管理员 Web 账号或按群 Web 授权。所有 `/api/v1/` 请求均需鉴权、限流；不启用 CORS，不接受跨 Origin 写入。默认仅本机访问，手机远程使用需部署 HTTPS 反向代理。
 
 接口和请求示例见 [docs/api.md](docs/api.md)。部署与故障恢复见 [docs/operations.md](docs/operations.md)，架构与后续范围见 [docs/architecture.md](docs/architecture.md)。
 
@@ -218,7 +218,7 @@ scripts/               Windows UTF-8 运行和测试脚本
 
 ## 当前群管理行为
 
-- **接入审批**：机器人入群后待审批，由部署者在网页群组列表批准，或机器人超级管理员私聊使用 `/approve 群ID`。群主不能自行授权；离群后再加入需要重新审批。
+- **接入审批**：机器人入群后待审批，由后台管理员在网页群组列表批准，或机器人超级管理员私聊使用 `/approve 群ID`。群主不能自行授权；离群后再加入需要重新审批。
 - **群设置**：网页「群管理 → 配置群组」管理审核、规则、验证和欢迎语；私聊 `/settings` 或 `/rules` 先选择群组。关键词新增和编辑采用“关键词 → 回复内容”两步输入，同义词支持 `官网|网站|网址`。
 - **本地广告规则**：32 类广告预设与 11 类通用风险指标，可逐条开关、调整动作，另可添加包含、精确或正则规则。默认广告动作无需 AI：前三次删除并警告，第 4 次起持续禁言，交由管理员 `/ban 用户ID` 或 `/unmute 用户ID` 处理。次数取本群该成员已完成的自动处罚，不按天清零；显式禁言、封禁规则按所选动作执行。
 - **转发审核**：正文、转发来源及外部引用片段分别匹配，同一规则去重计分。普通群内回复不继承原消息；“举报”等前缀不赋予广告转发免审资格。本地规则不能识别所有变体、反诈语境或图片内文字。

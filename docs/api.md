@@ -34,7 +34,7 @@
 - `POST /auth/login`：JSON `{"token":"管理凭据"}`，成功设置 HttpOnly、SameSite=Strict Cookie，并返回 `csrf`，会话有效 8 小时。
 - `GET /auth/session`：返回当前会话的 CSRF Token。
 - `POST /auth/logout`：要求 Cookie 和 `X-CSRF-Token`，撤销会话。
-- `POST /api/v1/panel-ticket`：已鉴权部署者获取 60 秒一次性票据；`POST /auth/ticket` 用 `{"ticket":"票据"}` 消费并建立会话。
+- `POST /api/v1/panel-ticket`：已鉴权后台管理员获取 60 秒一次性票据；`POST /auth/ticket` 用 `{"ticket":"票据"}` 消费并建立会话。
 
 首页和静态资源公开可读，业务数据需要鉴权。登录每 IP 每 5 分钟最多 10 次；写操作拒绝跨 Origin。前端不在 localStorage 保存管理凭据。HTTPS 反向代理需保留 Host，并设置匹配的 HTTPS `panel_url`。
 
@@ -132,5 +132,5 @@
 - `GET /api/v1/groups/{chat}/users/{user}` 返回该成员最近 20 条验证、审核和处罚记录，不返回验证 Token。
 - `POST /api/v1/groups/{chat}/keywords/test` 接受 `{"text":"待测试消息"}`，返回命中规则及是否将回复，不发送 Telegram 消息。
 - 关键词支持 `buttons`，格式为 `[[{"text":"官网","url":"https://example.com"}]]`，最多 8 行、每行最多 4 个；仅支持 http、https、tg 链接。
-- `POST /api/v1/queue/{update}/retry` 仅重排状态为 dead 的任务，并记录部署者审计；不存在或已重排返回 404。
+- `POST /api/v1/queue/{update}/retry` 仅重排状态为 dead 的任务，并记录后台管理员审计；不存在或已重排返回 404。
 - 群接口拒绝未接入的群；系统配置不受群级接口影响。群设置 PUT 在事务中合并提交字段，拒绝 null 和未知字段。
