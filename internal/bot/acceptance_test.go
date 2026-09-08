@@ -880,8 +880,15 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		}
 		mu.Lock()
 		found := false
+		promptDeleted := false
 		for _, c := range calls {
+			if c.Method == "deleteMessage" && c.Body["chat_id"] == float64(chat.ID) && c.Body["message_id"] == float64(v.PromptID) {
+				promptDeleted = true
+			}
 			if c.Method == "sendMessage" && fmt.Sprint(c.Body["text"]) == "验后欢迎 889900 加入 Acceptance A" && c.Body["chat_id"] == float64(chat.ID) {
+				if !promptDeleted {
+					t.Error("welcome was sent before deleting verification prompt")
+				}
 				found = true
 			}
 		}

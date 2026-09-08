@@ -341,6 +341,14 @@ func (s *Service) finishVerification(ctx context.Context, v store.Verification) 
 	}
 	// Keep completing recoverable until the group welcome has been delivered.
 	if status == "verified" && settings.WelcomeEnabled {
+		// Remove the obsolete challenge before publishing the successful-join welcome.
+		// Retain its durable ID until the whole workflow finishes so failures can retry.
+		if v.PromptID > 0 {
+			if e = s.executor().Delete(ctx, v.ChatID, v.PromptID); e != nil {
+				return e
+			}
+			v.PromptID = 0
+		}
 		var chat domain.Chat
 		if e = s.Bot.Call(ctx, "getChat", map[string]any{"chat_id": v.ChatID}, &chat); e != nil {
 			return e
