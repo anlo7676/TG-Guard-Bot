@@ -1,5 +1,11 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 services:
   mysql:
+    logging: *default-logging
     image: mysql:8.4
     restart: unless-stopped
     environment:
@@ -17,6 +23,7 @@ services:
       retries: 30
     networks: [backend]
   redis:
+    logging: *default-logging
     image: redis:8.6.2-alpine
     restart: unless-stopped
     environment:
@@ -31,6 +38,7 @@ services:
       retries: 20
     networks: [backend]
   app:
+    logging: *default-logging
     build: .
     restart: unless-stopped
     env_file: .env

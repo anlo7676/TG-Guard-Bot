@@ -11,6 +11,7 @@ import (
 )
 
 type Config struct {
+	RetentionDays                                        int
 	Token, Mode, HTTPAddr, DSN, RedisAddr, RedisPassword string
 	AdminToken, WebhookURL, WebhookSecret                string
 	AIBaseURL, AIKey, AIModel                            string
@@ -48,6 +49,9 @@ func Load() (Config, error) {
 		}
 	}
 	var err error
+	if c.RetentionDays, err = number("RETENTION_DAYS", 90, 0, 3650); err != nil {
+		return c, err
+	}
 	if c.RedisDB, err = number("REDIS_DB", 0, 0, 15); err != nil {
 		return c, err
 	}

@@ -176,9 +176,9 @@ func (s *Service) VerificationReply(ctx context.Context, m domain.Message) error
 		}
 		return s.text(ctx, m.Chat.ID, "这条操作提示已过期或不再有效。设置操作请重新打开对应菜单；入群验证请从群内最新验证链接进入。")
 	}
-	return s.AnswerVerification(ctx, token, m.From.ID, strings.TrimSpace(m.Text))
+	return s.AnswerVerification(ctx, token, m.From.ID, strings.TrimSpace(m.Text), fmt.Sprintf("message:%d:%d", m.Chat.ID, m.ID))
 }
-func (s *Service) AnswerVerification(ctx context.Context, token string, user int64, answer string) error {
+func (s *Service) AnswerVerification(ctx context.Context, token string, user int64, answer string, events ...string) error {
 	v, e := s.Store.Verification(ctx, token)
 	if e == sql.ErrNoRows {
 		return s.Say(ctx, user, "zh_CN", "invalid_verify")
@@ -207,7 +207,7 @@ func (s *Service) AnswerVerification(ctx context.Context, token string, user int
 	if v.Status == "completing" {
 		return s.finishVerification(ctx, v)
 	}
-	v, e = s.Store.Answer(ctx, token, user, answer)
+	v, e = s.Store.Answer(ctx, token, user, answer, events...)
 	if errors.Is(e, store.ErrVerification) {
 		return s.Say(ctx, user, "zh_CN", "invalid_verify")
 	}

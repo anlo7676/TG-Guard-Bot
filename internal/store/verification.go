@@ -62,7 +62,7 @@ func (s *Store) VerificationPrompt(ctx context.Context, token string, id int64) 
 	_, e := s.DB.ExecContext(ctx, "UPDATE verification_sessions SET prompt_id=? WHERE token=?", id, token)
 	return e
 }
-func (s *Store) Answer(ctx context.Context, token string, user int64, answer string) (Verification, error) {
+func (s *Store) Answer(ctx context.Context, token string, user int64, answer string, events ...string) (Verification, error) {
 	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
 		return Verification{}, e
@@ -75,10 +75,40 @@ func (s *Store) Answer(ctx context.Context, token string, user int64, answer str
 	if e != nil {
 		return v, e
 	}
+	if v.UserID != user {
+		return v, ErrVerification
+	}
+	event := ""
+	if len(events) > 0 {
+		event = events[0]
+	}
+	if event != "" {
+		var correct bool
+		err := tx.QueryRowContext(ctx, "SELECT correct FROM verification_answers WHERE token=? AND event_key=?", token, event).Scan(&correct)
+		if err == nil {
+			if !correct {
+				return v, ErrVerification
+			}
+			return v, nil
+		}
+		if err != sql.ErrNoRows {
+			return v, err
+		}
+	}
+	record := func(correct bool) error {
+		if event == "" {
+			return nil
+		}
+		_, err := tx.ExecContext(ctx, "INSERT INTO verification_answers(token,event_key,correct) VALUES(?,?,?)", token, event, correct)
+		return err
+	}
 	if v.UserID != user || v.Status != "pending" || time.Now().After(v.ExpiresAt) || v.Attempts >= 3 {
 		return v, ErrVerification
 	}
 	if subtle.ConstantTimeCompare([]byte(v.AnswerHash), []byte(HashAnswer(token, answer))) != 1 {
+		if e = record(false); e != nil {
+			return v, e
+		}
 		_, e = tx.ExecContext(ctx, "UPDATE verification_sessions SET attempts=attempts+1,expires_at=IF(attempts>=3,UTC_TIMESTAMP(6),expires_at) WHERE token=?", token)
 		if e != nil {
 			return v, e
@@ -90,6 +120,9 @@ func (s *Store) Answer(ctx context.Context, token string, user int64, answer str
 	}
 	_, e = tx.ExecContext(ctx, "UPDATE verification_sessions SET status='completing' WHERE token=?", token)
 	if e != nil {
+		return v, e
+	}
+	if e = record(true); e != nil {
 		return v, e
 	}
 	v.Status = "completing"

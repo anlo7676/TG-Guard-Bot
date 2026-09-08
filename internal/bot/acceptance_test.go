@@ -66,6 +66,7 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		Body   map[string]any
 	}{}
 	mid := int64(500)
+	failAuditWrong := false
 	failReviewNoticeOnce := false
 	failAdminLookupOnce := false
 	failNextWelcome := false
@@ -89,6 +90,10 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		if failReviewNoticeOnce && method == "sendMessage" && strings.Contains(fmt.Sprint(in["text"]), "累计违规超过 3 次") {
 			failReviewNoticeOnce = false
 			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": 500, "description": "temporary notice failure"})
+			return
+		}
+		if failAuditWrong && method == "sendMessage" {
+			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": 500, "description": "simulated notification failure"})
 			return
 		}
 		var result any = true
@@ -1293,6 +1298,219 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		if count("deleteMessage") != beforeDelete+1 {
 			t.Fatal("anonymous admin punished")
 		}
+	})
+	t.Run("answer retries and channel policy regressions", func(t *testing.T) {
+		token := "retry_answer_token"
+		v := store.Verification{Token: token, ChatID: other.ID, UserID: 991121, Type: "math", Question: "1+1", AnswerHash: store.HashAnswer(token, "2"), FailAction: "kick", ExpiresAt: time.Now().Add(time.Minute)}
+		if e := db.CreateVerification(ctx, v); e != nil {
+			t.Fatal(e)
+		}
+		mu.Lock()
+		failAuditWrong = true
+		mu.Unlock()
+		for i := 0; i < 3; i++ {
+			if e := svc.AnswerVerification(ctx, token, v.UserID, "1", "message:991121:1"); e == nil {
+				t.Fatal("expected notification failure")
+			}
+		}
+		mu.Lock()
+		failAuditWrong = false
+		mu.Unlock()
+		v, e := db.Verification(ctx, token)
+		if e != nil || v.Attempts != 1 {
+			t.Fatal("same event counted twice", v, e)
+		}
+		_ = svc.AnswerVerification(ctx, token, v.UserID, "1", "message:991121:2")
+		v, e = db.Verification(ctx, token)
+		if e != nil || v.Attempts != 2 {
+			t.Fatal("new answer not counted", v, e)
+		}
+		if e := svc.AnswerVerification(ctx, token, v.UserID, "2", "message:991121:3"); e != nil {
+			t.Fatal(e)
+		}
+		chat := domain.Chat{ID: -100887766, Type: "supergroup", Title: "Regression"}
+		if e := db.RegisterGroup(ctx, chat); e != nil {
+			t.Fatal(e)
+		}
+		if e := db.AuthorizeGroup(ctx, chat.ID, 42, "approved", ""); e != nil {
+			t.Fatal(e)
+		}
+		h := &Handler{Service: svc}
+		m := domain.Message{Chat: chat, SenderChat: &domain.Chat{ID: -777887766, Type: "channel"}, Text: "早上好"}
+		before := count("deleteMessage")
+		for i := 0; i < 7; i++ {
+			m.ID = int64(888870 + i)
+			if e := h.Handle(ctx, domain.Update{ID: m.ID, Message: &m}); e != nil {
+				t.Fatal(e)
+			}
+		}
+		if count("deleteMessage") <= before {
+			t.Fatal("channel spam bypassed")
+		}
+		if e := db.ChangeSettings(ctx, chat.ID, 42, func(s *domain.Settings) error {
+			s.AutoDelete = false
+			s.AutoMute = false
+			s.AutoBan = false
+			s.AutoWarn = true
+			s.Rules["url"] = domain.RuleSetting{Enabled: true, Score: 100}
+			return nil
+		}); e != nil {
+			t.Fatal(e)
+		}
+		before = count("deleteMessage")
+		m.ID = 888880
+		m.Text = "https://example.com"
+		if e := h.Handle(ctx, domain.Update{ID: m.ID, Message: &m}); e != nil {
+			t.Fatal(e)
+		}
+		if count("deleteMessage") != before {
+			t.Fatal("channel warning ignored AutoDelete")
+		}
+	})
+	t.Run("retention preserves counters feedback and unfinished inbox", func(t *testing.T) {
+		l, e := db.SaveLog(ctx, store.Log{EventKey: "retention-1", ChatID: other.ID, UserID: 555119, Text: "old text", Source: "automatic", Decision: domain.Decision{Action: "warn"}})
+		if e != nil {
+			t.Fatal(e)
+		}
+		if _, e = db.PreparePunishment(ctx, l, 0); e != nil {
+			t.Fatal(e)
+		}
+		if e = db.PunishmentStep(ctx, l.EventKey, "done"); e != nil {
+			t.Fatal(e)
+		}
+		feedback := l
+		feedback.EventKey = "retention-feedback"
+		feedback.ID = 0
+		feedback, e = db.SaveLog(ctx, feedback)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if e = db.Feedback(ctx, other.ID, feedback.ID, 42, "keep evidence"); e != nil {
+			t.Fatal(e)
+		}
+		if _, e = db.DB.ExecContext(ctx, "UPDATE moderation_logs SET created_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 100 DAY) WHERE id IN (?,?)", l.ID, feedback.ID); e != nil {
+			t.Fatal(e)
+		}
+		for i := int64(771111); i <= 771112; i++ {
+			if e = db.Enqueue(ctx, domain.Update{ID: i, Message: &domain.Message{Text: "private content", Chat: other}}); e != nil {
+				t.Fatal(e)
+			}
+		}
+		if _, e = db.DB.ExecContext(ctx, "UPDATE update_inbox SET status=IF(update_id=771111,'done','dead'),created_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 100 DAY) WHERE update_id IN (771111,771112)"); e != nil {
+			t.Fatal(e)
+		}
+		if e = db.RetainData(ctx, 90); e != nil {
+			t.Fatal(e)
+		}
+		current, e := db.GetLog(ctx, l.EventKey)
+		if e != nil || current.Text == "old text" {
+			t.Fatal("old content not cleared", e)
+		}
+		kept, e := db.GetLog(ctx, feedback.EventKey)
+		if e != nil || kept.Text != "old text" {
+			t.Fatal("feedback evidence lost", e)
+		}
+		n, e := db.ViolationCount(ctx, other.ID, l.UserID)
+		if e != nil || n != 1 {
+			t.Fatal("counter changed", n, e)
+		}
+		var raw string
+		if e = db.DB.QueryRowContext(ctx, "SELECT payload FROM update_inbox WHERE update_id=771112").Scan(&raw); e != nil || !strings.Contains(raw, "private content") {
+			t.Fatal("dead task damaged", e)
+		}
+		if e = db.Enqueue(ctx, domain.Update{ID: 771111}); e != nil {
+			t.Fatal(e)
+		}
+		if e = db.DB.QueryRowContext(ctx, "SELECT payload FROM update_inbox WHERE update_id=771111").Scan(&raw); e != nil || strings.Contains(raw, "private content") {
+			t.Fatal("tombstone lost", e)
+		}
+		name, e := db.LockName(ctx, "instance")
+		if e != nil {
+			t.Fatal(e)
+		}
+		if len(name) > 64 || !strings.HasPrefix(name, "tg_guard:instance:") {
+			t.Fatal("invalid lock name", name)
+		}
+		if e = db.Migrate(ctx); e != nil {
+			t.Fatal("migration not restart safe", e)
+		}
+	})
+	t.Run("database locks isolate instances", func(t *testing.T) {
+		otherCfg := *cfg
+		otherCfg.DBName = dbName + "_lock_test"
+		if _, e := admin.ExecContext(ctx, "CREATE DATABASE `"+otherCfg.DBName+"`"); e != nil {
+			t.Fatal(e)
+		}
+		defer admin.ExecContext(ctx, "DROP DATABASE `"+otherCfg.DBName+"`")
+		second, e := store.Open(ctx, otherCfg.FormatDSN())
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer second.DB.Close()
+		for _, kind := range []string{"instance", "migrations"} {
+			a, e := db.LockName(ctx, kind)
+			if e != nil {
+				t.Fatal(e)
+			}
+			b, e := second.LockName(ctx, kind)
+			if e != nil || a == b {
+				t.Fatal("database lock collision", e)
+			}
+			c1, e := db.DB.Conn(ctx)
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer c1.Close()
+			c2, e := second.DB.Conn(ctx)
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer c2.Close()
+			var acquired int
+			if e = c1.QueryRowContext(ctx, "SELECT GET_LOCK(?,0)", a).Scan(&acquired); e != nil || acquired != 1 {
+				t.Fatal(e, acquired)
+			}
+			defer c1.ExecContext(ctx, "SELECT RELEASE_LOCK(?)", a)
+			if e = c2.QueryRowContext(ctx, "SELECT GET_LOCK(?,0)", b).Scan(&acquired); e != nil || acquired != 1 {
+				t.Fatal(e, acquired)
+			}
+			defer c2.ExecContext(ctx, "SELECT RELEASE_LOCK(?)", b)
+			if e = c2.QueryRowContext(ctx, "SELECT GET_LOCK(?,0)", a).Scan(&acquired); e != nil || acquired != 0 {
+				t.Fatal("same database must remain exclusive", e, acquired)
+			}
+		}
+	})
+	t.Run("readiness reflects Telegram and stale queue", func(t *testing.T) {
+		svc.Health = service.NewIngestionHealth("polling")
+		defer func() { svc.Health = nil }()
+		server := (&api.Server{Service: svc}).Handler()
+		check := func(want int) {
+			t.Helper()
+			w := httptest.NewRecorder()
+			server.ServeHTTP(w, httptest.NewRequest("GET", "/health/ready", nil))
+			if w.Code != want {
+				t.Fatalf("readiness %d: %s", w.Code, w.Body.String())
+			}
+		}
+		svc.Health.Record(true)
+		check(200)
+		for i := 0; i < 3; i++ {
+			svc.Health.Record(false)
+		}
+		check(503)
+		svc.Health.Record(true)
+		check(200)
+		if e := db.Enqueue(ctx, domain.Update{ID: 771119}); e != nil {
+			t.Fatal(e)
+		}
+		if _, e := db.DB.ExecContext(ctx, "UPDATE update_inbox SET created_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 6 MINUTE) WHERE update_id=771119"); e != nil {
+			t.Fatal(e)
+		}
+		check(503)
+		if _, e := db.DB.ExecContext(ctx, "UPDATE update_inbox SET status='done' WHERE update_id=771119"); e != nil {
+			t.Fatal(e)
+		}
+		check(200)
 	})
 	t.Run("expired menu and revoked permission", func(t *testing.T) {
 		m := domain.Message{Chat: domain.Chat{ID: 42, Type: "private"}, From: &domain.User{ID: 42}}

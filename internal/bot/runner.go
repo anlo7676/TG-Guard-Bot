@@ -23,6 +23,7 @@ func (h *Handler) Poll(ctx context.Context) error {
 	for ctx.Err() == nil {
 		var updates []domain.Update
 		e = h.Service.Bot.Call(ctx, "getUpdates", map[string]any{"offset": offset, "timeout": 25, "limit": 100, "allowed_updates": AllowedUpdates}, &updates)
+		h.Service.Health.Record(e == nil)
 		if e != nil {
 			if ctx.Err() != nil {
 				return nil
@@ -71,6 +72,40 @@ func (h *Handler) Workers(ctx context.Context, count int) {
 			state.Sleep(ctx, time.Second)
 		}
 	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for ctx.Err() == nil {
+			if h.Service.RetentionDays > 0 {
+				c, cancel := context.WithTimeout(ctx, 30*time.Second)
+				if e := h.Service.Store.RetainData(c, h.Service.RetentionDays); e != nil && ctx.Err() == nil {
+					slog.Error("retention failed", "error", e)
+				}
+				cancel()
+			}
+			state.Sleep(ctx, time.Hour)
+		}
+	}()
+	if h.Service.Health != nil {
+		snapshot, _ := h.Service.Health.Snapshot()
+		if snapshot["mode"] == "webhook" {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for ctx.Err() == nil {
+					c, cancel := context.WithTimeout(ctx, 10*time.Second)
+					var info struct {
+						URL       string `json:"url"`
+						LastError int64  `json:"last_error_date"`
+					}
+					e := h.Service.Bot.Call(c, "getWebhookInfo", map[string]any{}, &info)
+					cancel()
+					h.Service.Health.Record(e == nil && info.URL != "" && (info.LastError == 0 || time.Since(time.Unix(info.LastError, 0)) > 90*time.Second))
+					state.Sleep(ctx, 30*time.Second)
+				}
+			}()
+		}
+	}
 	wg.Wait()
 }
 func (h *Handler) worker(ctx context.Context, id int) {

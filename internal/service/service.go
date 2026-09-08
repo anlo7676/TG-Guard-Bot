@@ -16,12 +16,14 @@ import (
 )
 
 type Service struct {
-	Store       *store.Store
-	State       *state.State
-	Bot         *telegram.Client
-	AI          ai.Provider
-	SuperAdmins map[int64]bool
-	Runtime     *settings.Manager
+	Health        *IngestionHealth
+	RetentionDays int
+	Store         *store.Store
+	State         *state.State
+	Bot           *telegram.Client
+	AI            ai.Provider
+	SuperAdmins   map[int64]bool
+	Runtime       *settings.Manager
 }
 
 func (s *Service) IsSuperAdmin(id int64) bool {

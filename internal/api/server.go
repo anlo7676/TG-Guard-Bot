@@ -128,7 +128,17 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 		respond(w, 503, map[string]string{"status": "unavailable"})
 		return
 	}
-	respond(w, 200, map[string]string{"status": "ready"})
+	health, ok := s.Service.Health.Snapshot()
+	queue, e := s.Service.Store.QueueHealth(ctx)
+	if e != nil {
+		respond(w, 503, map[string]string{"status": "unavailable"})
+		return
+	}
+	code, status := 200, "ready"
+	if !ok || queue["oldest_pending_seconds"].(int64) >= 300 {
+		code, status = 503, "unavailable"
+	}
+	respond(w, code, map[string]any{"status": status, "telegram": health, "queue": queue})
 }
 func (s *Server) webhook(w http.ResponseWriter, r *http.Request) {
 	if !SecretEqual(r.Header.Get("X-Telegram-Bot-Api-Secret-Token"), s.Config.WebhookSecret) {

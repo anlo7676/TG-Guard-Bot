@@ -53,14 +53,18 @@ func (s *Store) Migrate(ctx context.Context) error {
 		return e
 	}
 	defer c.Close()
+	lockName, e := s.LockName(ctx, "migrations")
+	if e != nil {
+		return e
+	}
 	var locked int
-	if e = c.QueryRowContext(ctx, "SELECT GET_LOCK('tg_guard_migrations',30)").Scan(&locked); e != nil {
+	if e = c.QueryRowContext(ctx, "SELECT GET_LOCK(?,30)", lockName).Scan(&locked); e != nil {
 		return e
 	}
 	if locked != 1 {
 		return fmt.Errorf("migration lock unavailable")
 	}
-	defer c.ExecContext(context.Background(), "SELECT RELEASE_LOCK('tg_guard_migrations')")
+	defer c.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", lockName)
 	if _, e = c.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6))"); e != nil {
 		return e
 	}
@@ -93,7 +97,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 			return e
 		}
 	}
-	return nil
+	return ensureMaintenanceIndexes(ctx, c)
 }
 func JSON(v any) string { b, _ := json.Marshal(v); return string(b) }
 func (s *Store) RegisterGroup(ctx context.Context, c domain.Chat) error {

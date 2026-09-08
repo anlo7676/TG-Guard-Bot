@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS verification_answers (
+ token VARCHAR(48) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+ event_key VARCHAR(100) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+ correct BOOLEAN NOT NULL,
+ created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+ PRIMARY KEY(token,event_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

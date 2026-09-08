@@ -50,7 +50,7 @@ func (s *Service) Callback(ctx context.Context, c domain.Callback) error {
 		if e := s.Bot.AnswerCallback(ctx, c.ID, ""); e != nil {
 			slog.Debug("callback acknowledgement failed", "error", e)
 		}
-		return s.AnswerVerification(ctx, parts[1], c.From.ID, parts[2])
+		return s.AnswerVerification(ctx, parts[1], c.From.ID, parts[2], "callback:"+c.ID)
 	}
 	if parts[0] != "r" {
 		return nil

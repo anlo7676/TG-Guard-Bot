@@ -80,7 +80,7 @@ func run() error {
 		return e
 	}
 	provider := &ai.Live{Settings: runtime, State: cache, Store: db, Slots: make(chan struct{}, c.AIConcurrency)}
-	svc := &service.Service{Store: db, State: cache, Bot: tg, AI: provider, SuperAdmins: c.SuperAdmins, Runtime: runtime}
+	svc := &service.Service{Health: service.NewIngestionHealth(c.Mode), RetentionDays: c.RetentionDays, Store: db, State: cache, Bot: tg, AI: provider, SuperAdmins: c.SuperAdmins, Runtime: runtime}
 	handler := &bot.Handler{Service: svc}
 	web := &api.Server{Service: svc, Config: c}
 	server := &http.Server{Addr: c.HTTPAddr, Handler: web.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 45 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
@@ -90,14 +90,18 @@ func run() error {
 		return e
 	}
 	defer leaseConn.Close()
+	lockName, e := db.LockName(ctx, "instance")
+	if e != nil {
+		return e
+	}
 	var owned int
-	if e = leaseConn.QueryRowContext(ctx, "SELECT GET_LOCK('tg_guard_single_instance',0)").Scan(&owned); e != nil {
+	if e = leaseConn.QueryRowContext(ctx, "SELECT GET_LOCK(?,0)", lockName).Scan(&owned); e != nil {
 		return e
 	}
 	if owned != 1 {
 		return errors.New("another TG Guard instance is running; stop it before starting this instance")
 	}
-	defer leaseConn.ExecContext(context.Background(), "SELECT RELEASE_LOCK('tg_guard_single_instance')")
+	defer leaseConn.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", lockName)
 	if e = svc.RegisterMenus(startup); e != nil {
 		return e
 	}
@@ -138,7 +142,7 @@ func run() error {
 			}
 			var mine int
 			check, done := context.WithTimeout(ctx, 3*time.Second)
-			e := leaseConn.QueryRowContext(check, "SELECT IS_USED_LOCK('tg_guard_single_instance')=CONNECTION_ID()").Scan(&mine)
+			e := leaseConn.QueryRowContext(check, "SELECT IS_USED_LOCK(?)=CONNECTION_ID()", lockName).Scan(&mine)
 			done()
 			if e != nil || mine != 1 {
 				errCh <- errors.New("instance lock lost")
