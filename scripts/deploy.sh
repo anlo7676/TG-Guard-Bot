@@ -59,6 +59,7 @@ fi
 fi
 # A short-lived ticket avoids displaying the permanent administrator credential.
 if ! response=$(printf 'header = "Authorization: Bearer %s"\n' "$ADMIN_API_TOKEN" | curl --config - --fail --silent --show-error --max-time 15 -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8080/api/v1/panel-ticket); then
+  if [[ "$mode" == --panel-only ]]; then echo '未取得登录链接，请检查服务状态或后台凭据。' >&2; exit 1; fi
   echo '服务已启动；暂时无法获取登录链接。稍后在管理菜单重新获取即可，服务无需回退。' >&2
   exit 0
 fi
@@ -78,6 +79,7 @@ if [[ "$response" =~ \"ticket\":\"([A-Za-z0-9_-]+)\" ]]; then
   fi
   echo '一次性登录链接有效期 1 分钟；过期后使用 .env 中的 ADMIN_API_TOKEN 登录。'
 else
+  if [[ "$mode" == --panel-only ]]; then echo '后台返回的登录票据无效，请检查服务日志。' >&2; exit 1; fi
   echo '服务已启动，但未能取得登录票据。可使用 .env 中的 ADMIN_API_TOKEN 登录后台。' >&2
   exit 0
 fi

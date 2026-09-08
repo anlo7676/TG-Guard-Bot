@@ -15,13 +15,13 @@ for (const kind of ['bash', ...(process.platform === 'win32' ? ['pwsh'] : [])]) 
       fs.mkdirSync(path.join(root, 'scripts'));
       fs.copyFileSync(path.join(source, `deploy.${kind === 'bash' ? 'sh' : 'ps1'}`), path.join(root, 'scripts', `deploy.${kind === 'bash' ? 'sh' : 'ps1'}`));
       fs.writeFileSync(path.join(root, 'scripts', 'open-panel.ps1'), "Set-Content -LiteralPath panel-opened 'yes'\n");
-      const run = (fail = false, failTicket = false) => {
+      const run = (fail = false, failTicket = false, panelOnly = false) => {
         if (kind === 'pwsh') {
           const harness = `function global:docker { if ($args -contains 'up') { Add-Content -LiteralPath docker-start 'yes'; $global:LASTEXITCODE = ${fail ? 1 : 0} } else { $global:LASTEXITCODE = 0 } }\nfunction global:Read-Host { return '${token}' }\n& ./scripts/deploy.ps1\n`;
           return spawnSync('pwsh', ['-NoProfile', '-Command', harness], {cwd:root, encoding:'utf8'});
         }
         const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
-        const harness = `docker() { case "$*" in *' up '*) printf 'yes\\n' >> docker-start; return ${fail ? 1 : 0};; esac; }; curl() { cat >/dev/null; ${failTicket?'return 1;':`printf '%s' '{"ticket":"test-ticket"}';`} }; export -f docker curl; bash scripts/deploy.sh`;
+        const harness = `docker() { case "$*" in *' up '*) printf 'yes\\n' >> docker-start; return ${fail ? 1 : 0};; esac; }; curl() { cat >/dev/null; ${failTicket?'return 1;':`printf '%s' '{"ticket":"test-ticket"}';`} }; export -f docker curl; bash scripts/deploy.sh ${panelOnly?'--panel-only':''}`;
         return spawnSync(bash, ['-c', harness], {cwd:root, input:token+'\n', encoding:'utf8'});
       };
       let result = run();
@@ -36,6 +36,9 @@ for (const kind of ['bash', ...(process.platform === 'win32' ? ['pwsh'] : [])]) 
       assert.equal(fs.readFileSync(path.join(root, '.env'), 'utf8'), saved);
       if (kind === 'bash') {
         result=run(false,true);assert.equal(result.status,0,'ticket failure must not roll back healthy service');
+        const starts=fs.readFileSync(path.join(root,'docker-start'),'utf8');
+        result=run(false,true,true);assert.notEqual(result.status,0,'panel-only failure must be reported');
+        assert.equal(fs.readFileSync(path.join(root,'docker-start'),'utf8'),starts,'login must not restart services');
         fs.writeFileSync(path.join(root,'.env'),config+'PANEL_DOMAIN=guard.example.com\n');
         result=run();assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/https:\/\/guard.example.com\/#ticket=/);
         fs.writeFileSync(path.join(root, '.env'), config + 'PANEL_BIND=0.0.0.0\nPANEL_HOST=203.0.113.10\n');

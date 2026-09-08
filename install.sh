@@ -10,6 +10,20 @@ stable_release() {
   [[ -z "${TG_GUARD_TARGET_RELEASE:-}" || "$tag" == "$TG_GUARD_TARGET_RELEASE" ]] || { echo '稳定版本已变化，请重新检查更新。' >&2; return 1; }
   printf '%s' "$tag"
 }
+# Probe this Compose project's container, not a possibly unrelated host port.
+# Any missing/ambiguous response takes the repair path rather than claiming success.
+running_release() {
+  local target=$1 release=$2 revision=$3 container response version source
+  [[ -f "$target/.env" ]] || return 1
+  container=$(cd "$target" && docker compose --env-file .env ps -q app) || return 1
+  [[ "$container" =~ ^[a-f0-9]{12,64}$ ]] || return 1
+  response=$(docker exec "$container" wget -q -T 5 -O - http://127.0.0.1:8080/health/live) || return 1
+  version=$(printf '%s' "$response" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')
+  source=$(printf '%s' "$response" | sed -n 's/.*"source":"\([^"]*\)".*/\1/p')
+  [[ "$version" == "${release#v}" && "$source" == "${revision:0:12}" ]] || return 1
+  docker exec "$container" wget -q -T 5 -O /dev/null http://127.0.0.1:8080/health/ready
+}
+
 install_dependencies() {
   local missing=0 command
   for command in git curl openssl; do command -v "$command" >/dev/null || missing=1; done
@@ -56,7 +70,7 @@ main() {
   [[ "$(uname -s)" == Linux ]] || { echo '此安装入口用于 Linux；Windows 请使用 scripts/deploy.ps1。' >&2; return 1; }
   [[ "$(id -u)" == 0 ]] || { echo '请使用 sudo bash 执行安装命令。' >&2; return 1; }
   local target=${TG_GUARD_INSTALL_DIR:-/opt/tg-guard}
-  local release previous=''
+  local release desired previous=''
   [[ "$target" == /* && "$target" != / && ! -L "$target" ]] || { echo '安装目录必须为非根目录的绝对路径，且不能为符号链接。' >&2; return 1; }
   # Open an installed menu without network access or package changes.
   if [[ -e "$target" ]]; then
@@ -77,6 +91,17 @@ main() {
     release=$(stable_release)
     git -C "$target" fetch origin "refs/tags/$release:refs/tags/$release"
     previous=$(git -C "$target" rev-parse HEAD)
+    desired=$(git -C "$target" rev-parse "$release^{commit}")
+    if [[ "$previous" == "$desired" ]] && running_release "$target" "$release" "$desired"; then
+      echo "已是最新版本 $release，运行版本一致且服务就绪，无需更新。"
+      return 0
+    fi
+    git -C "$target" merge-base --is-ancestor "$previous" "$desired" || { echo '当前代码不在稳定版升级路径上，停止更新；配置和数据未修改。' >&2; return 1; }
+    if [[ "$previous" == "$desired" ]]; then
+      echo "代码已是 $release，但运行版本不一致或服务未就绪，正在重新部署。"
+    else
+      echo "发现稳定版本 $release，正在更新。"
+    fi
     git -C "$target" merge --ff-only "$release"
   else
     install_dependencies
@@ -88,10 +113,12 @@ main() {
   echo "项目目录：$target；配置和数据将保留。"
   if [[ "${1:-}" == --deploy || ! -f "$target/scripts/manage.sh" ]]; then
     if ! bash "$target/scripts/deploy.sh"; then
-      if [[ -n "$previous" && -z "$(git -C "$target" status --porcelain)" ]]; then
+      if [[ -n "$previous" && "$previous" != "$(git -C "$target" rev-parse HEAD)" && -z "$(git -C "$target" status --porcelain)" ]]; then
         echo '更新启动失败，正在恢复更新前的代码和服务；配置及数据库卷保留。' >&2
         git -C "$target" reset --hard "$previous"
         bash "$target/scripts/deploy.sh" || echo '旧服务恢复失败，请检查日志；数据库结构可能已升级，需要按备份恢复。' >&2
+      else
+        echo '启动未完成，没有可自动恢复的不同版本；请查看日志后通过“安装 / 启动”重试。' >&2
       fi
       return 1
     fi
