@@ -37,7 +37,7 @@ func (s *Service) dataCenter(ctx context.Context, m domain.Message, arg string) 
 	name := s.dataCenterName(ctx, m, target)
 	dc, e := s.Bot.UserPhotoDC(ctx, target)
 	if errors.Is(e, telegram.ErrDCUnavailable) {
-		return s.text(ctx, m.Chat.ID, fmt.Sprintf("用户昵称/姓名：%s\n用户 ID：%d\n暂时无法查询：没有机器人可见的头像，或头像格式暂不支持。\nTelegram 不提供直接查询账号归属 DC 的 Bot API。", name, target))
+		return s.text(ctx, m.Chat.ID, fmt.Sprintf("用户：%s\n用户 ID：%d\n暂时无法查询：没有机器人可见的头像，或头像格式暂不支持。\nTelegram 不提供直接查询账号归属 DC 的 Bot API。", name, target))
 	}
 	if e != nil {
 		slog.Warn("DC photo lookup failed", "target_user_id", target, "requester_id", m.From.ID, "error", e)
@@ -84,5 +84,5 @@ func dataCenterReply(name string, user int64, dc int) string {
 	case 5:
 		region = "新加坡"
 	}
-	return fmt.Sprintf("用户昵称/姓名：%s\n用户 ID：%d\n数据中心：DC%d\n地区：%s\n\n基于用户可见头像存储位置推测数据中心，仅供参考。", name, user, dc, region)
+	return fmt.Sprintf("用户：%s\n用户 ID：%d\n数据中心：DC%d\n地区：%s\n\n基于用户可见头像存储位置推测数据中心，仅供参考。", name, user, dc, region)
 }

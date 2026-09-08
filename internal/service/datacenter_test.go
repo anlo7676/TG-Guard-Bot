@@ -57,7 +57,7 @@ func TestDCCommandTargetsAndUnavailable(t *testing.T) {
 		t.Fatal(messages)
 	}
 	for i, name := range map[int]string{0: "本人", 1: "查询目标 甲", 3: "被回复用户"} {
-		if !strings.HasPrefix(messages[i], "用户昵称/姓名："+name+"\n用户 ID：") {
+		if !strings.HasPrefix(messages[i], "用户："+name+"\n用户 ID：") {
 			t.Fatal(messages[i])
 		}
 	}
@@ -66,7 +66,7 @@ func TestDCCommandTargetsAndUnavailable(t *testing.T) {
 func TestDataCenterReplyRegionsAndLimits(t *testing.T) {
 	for dc, region := range map[int]string{1: "美国 · 迈阿密", 2: "荷兰 · 阿姆斯特丹", 3: "美国 · 迈阿密", 4: "荷兰 · 阿姆斯特丹", 5: "新加坡", 6: "未知地区"} {
 		got := dataCenterReply("测试姓名", 42, dc)
-		if !strings.HasPrefix(got, "用户昵称/姓名：测试姓名\n用户 ID：42\n") {
+		if !strings.HasPrefix(got, "用户：测试姓名\n用户 ID：42\n") {
 			t.Fatal(got)
 		}
 		for _, want := range []string{"用户 ID：42", "数据中心：DC", region, "可见头像存储位置", "仅供参考"} {
