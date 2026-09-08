@@ -54,5 +54,5 @@ func dataCenterReply(user int64, dc int) string {
 	case 5:
 		region = "新加坡"
 	}
-	return fmt.Sprintf("用户 ID：%d\n数据中心：DC%d\n地区：%s\n\n基于用户可见头像存储位置推测数据中心，仅供参考，不能确认账号归属或用户所在地。", user, dc, region)
+	return fmt.Sprintf("用户 ID：%d\n数据中心：DC%d\n地区：%s\n\n基于用户可见头像存储位置推测数据中心，仅供参考。", user, dc, region)
 }
