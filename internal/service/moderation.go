@@ -74,6 +74,12 @@ func (s *Service) ModerateResult(ctx context.Context, update int64, m domain.Mes
 	if kind == "black" && !protected {
 		l.Decision = domain.Decision{Action: "ban", Delete: settings.AutoDelete, Reason: "blacklist"}
 	}
+	if settings.ModerationEnabled && !protected {
+		l.Decision, e = s.repeatAdDecision(ctx, l, settings)
+		if e != nil {
+			return store.Log{}, e
+		}
+	}
 	l, e = s.Store.SaveLog(ctx, l)
 	if e != nil {
 		return store.Log{}, e
@@ -102,6 +108,21 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 		return e
 	}
 	defer unlock()
+	loggedDecision := l.Decision
+	if (l.Source == "automatic" || l.Source == "review") && l.Decision.Delete && l.Decision.Action != "ban" {
+		already, err := s.Store.MessageAlreadyPunished(ctx, l)
+		if err != nil || already {
+			return err
+		}
+		settings, err := s.Store.Settings(ctx, l.ChatID)
+		if err != nil {
+			return err
+		}
+		l.Decision, err = s.repeatAdDecision(ctx, l, settings)
+		if err != nil {
+			return err
+		}
+	}
 	p, e := s.Store.PreparePunishment(ctx, l, actor)
 	if e != nil {
 		return e
@@ -111,6 +132,12 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 	}
 	if p.Status == "failed" {
 		return fmt.Errorf("处罚已终止，请修复权限后重新发起操作")
+	}
+	l.Decision = p.Decision
+	if l.Decision != loggedDecision {
+		if e = s.Store.UpdateLogDecision(ctx, l); e != nil {
+			return e
+		}
 	}
 	mayHaveActed := p.Acted || p.Deleted || p.Started
 	stage := "preflight"
@@ -147,7 +174,7 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 	if protected && p.Decision.Action != "unmute" && p.Decision.Action != "unban" {
 		return s.Store.PunishmentStep(ctx, l.EventKey, "skipped")
 	}
-	if l.Source == "automatic" || l.Source == "manual" {
+	if l.Source == "automatic" || l.Source == "manual" || l.Source == "review" {
 		resolved, e := s.Store.NewerManualResolution(ctx, l.ChatID, l.UserID, p.CreatedAt)
 		if e != nil {
 			return e
@@ -252,6 +279,16 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 		}
 	}
 	stage = "notification"
+	if d.Action == "warn" && d.Delete && (l.Source == "automatic" || l.Source == "review") {
+		if e = s.Store.RememberAdWarning(ctx, l, adFingerprint(l.Text)); e != nil {
+			return e
+		}
+	}
+	if d.Reason == "repeated_ad" {
+		if e = s.text(ctx, l.ChatID, fmt.Sprintf("用户 %d 再次发送已删除并警告的相同内容，原消息已删除，已禁言 %s。管理员可使用 /unmute %d 解除禁言。", l.UserID, warningDuration(d.Duration), l.UserID)); e != nil {
+			return e
+		}
+	}
 	if d.Reason == "local_ad_review" {
 		resolved, e := s.Store.NewerManualResolution(ctx, l.ChatID, l.UserID, p.CreatedAt)
 		if e != nil {
@@ -388,7 +425,21 @@ func (s *Service) Review(ctx context.Context, update int64, m domain.Message) er
 		slog.Warn("manual AI unavailable", "error", e)
 		return s.Say(ctx, m.Chat.ID, settings.Language, "ai_unavailable")
 	}
-	l, e := s.Store.SaveLog(ctx, store.Log{EventKey: eventKey(update, "review"), ChatID: m.Chat.ID, UserID: n.UserID, MessageID: n.MessageID, Text: target.Text + target.Caption, Risk: r, AI: &a, Decision: domain.Decision{Action: "shadow_log", Reason: "manual_review"}, Source: "review"})
+	decision := domain.Decision{Action: "shadow_log", Reason: "manual_review"}
+	if a.IsAd {
+		decision = domain.Decision{Action: "warn", Delete: true, Reason: "manual_ai_ad"}
+	}
+	l, e := s.Store.SaveLog(ctx, store.Log{EventKey: fmt.Sprintf("review:%d:%d", m.Chat.ID, target.ID), ChatID: m.Chat.ID, UserID: n.UserID, MessageID: n.MessageID, Text: target.ModerationText(), Risk: r, AI: &a, Decision: decision, Source: "review"})
+	if e != nil {
+		return e
+	}
+	if e = s.Punish(ctx, l, m.From.ID); e != nil {
+		return e
+	}
+	if l.AI != nil {
+		a = *l.AI
+	}
+	outcome, e := s.Store.ReviewOutcome(ctx, l)
 	if e != nil {
 		return e
 	}
@@ -396,6 +447,6 @@ func (s *Service) Review(ctx context.Context, update int64, m domain.Message) er
 	if e != nil {
 		return e
 	}
-	_, e = s.Bot.Send(ctx, m.Chat.ID, i18n.Text(settings.Language, "ai_result", a.IsAd, a.Confidence*100, a.Category, a.Reason, a.RecommendedAction), markup, m.ID)
+	_, e = s.Bot.Send(ctx, m.Chat.ID, i18n.Text(settings.Language, "ai_result", a.IsAd, a.Confidence*100, a.Category, a.Reason, a.RecommendedAction)+"\n处理状态："+reviewOutcomeText(outcome), markup, m.ID)
 	return e
 }

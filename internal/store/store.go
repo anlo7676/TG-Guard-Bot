@@ -467,6 +467,9 @@ func (s *Store) Feedback(ctx context.Context, chat, log, actor int64, note strin
 	if e = audit(ctx, tx, chat, actor, "feedback", nil, map[string]any{"log_id": log, "note": note}); e != nil {
 		return e
 	}
+	if _, e = tx.ExecContext(ctx, "DELETE w FROM ad_warning_memory w JOIN moderation_logs m ON w.chat_id=m.chat_id AND w.user_id=m.user_id AND w.message_id=m.message_id WHERE m.id=? AND m.chat_id=?", log, chat); e != nil {
+		return e
+	}
 	return tx.Commit()
 }
 func clip(s string, n int) string {

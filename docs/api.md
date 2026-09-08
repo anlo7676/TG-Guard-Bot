@@ -53,7 +53,7 @@
   "verification_type": "math",
   "verification_fail_action": "kick",
   "ai_enabled": true,
-  "ai_threshold": 50,
+  "ai_threshold": 30,
   "direct_threshold": 80,
   "ai_warn_confidence": 0.6,
   "ai_delete_confidence": 0.8,

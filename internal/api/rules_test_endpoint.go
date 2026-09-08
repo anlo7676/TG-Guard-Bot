@@ -50,5 +50,5 @@ func (s *Server) testRules(w http.ResponseWriter, r *http.Request) {
 	if !v.ModerationEnabled {
 		d = domain.Decision{Action: "allow", Reason: "moderation_disabled"}
 	}
-	respond(w, 200, map[string]any{"risk": risk, "decision": d, "moderation_enabled": v.ModerationEnabled, "ai_eligible": v.ModerationEnabled && v.AIEnabled && risk.Score >= v.AIThreshold && risk.Score < v.DirectThreshold, "ai_threshold": v.AIThreshold, "direct_threshold": v.DirectThreshold})
+	respond(w, 200, map[string]any{"risk": risk, "decision": d, "moderation_enabled": v.ModerationEnabled, "ai_eligible": v.ModerationEnabled && v.AIEnabled && risk.Score >= v.AIThreshold, "ai_threshold": v.AIThreshold, "direct_threshold": v.DirectThreshold})
 }

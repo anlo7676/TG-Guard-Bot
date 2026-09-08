@@ -51,7 +51,7 @@ func (s *Service) ModerateSenderChat(ctx context.Context, update int64, m domain
 		}
 	}
 	var ai *domain.AIResult
-	if !risk.Spam && settings.AIEnabled && s.AI != nil && risk.Score >= settings.AIThreshold && risk.Score < settings.DirectThreshold {
+	if settings.AIEnabled && s.AI != nil && risk.Score >= settings.AIThreshold {
 		ai = s.reviewAI(ctx, n, &risk, "channel", key)
 	}
 	decision := rules.Decide(risk, ai, settings, 0, false)

@@ -1141,7 +1141,7 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		const uid int64 = 990077
 		bans, mutes := count("banChatMember"), count("restrictChatMember")
 		for i := 0; i < 4; i++ {
-			m := domain.Message{ID: int64(80100 + i), Chat: other, From: &domain.User{ID: uid}, Text: "累计广告样例"}
+			m := domain.Message{ID: int64(80100 + i), Chat: other, From: &domain.User{ID: uid}, Text: fmt.Sprintf("累计广告样例 %d", i)}
 			if e := svc.Moderate(ctx, int64(80100+i), m); e != nil {
 				t.Fatal(e)
 			}
@@ -1847,6 +1847,102 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			t.Fatal("revoked admin changed settings")
 		}
 	})
+	t.Run("manual AI punishment and repeat evidence", func(t *testing.T) {
+		g := domain.Chat{ID: -10110, Type: "supergroup", Title: "AI policy test"}
+		if e := svc.Group(ctx, g); e != nil {
+			t.Fatal(e)
+		}
+		if e := db.AuthorizeGroup(ctx, g.ID, 42, "approved", "test"); e != nil {
+			t.Fatal(e)
+		}
+		if e := db.ChangeSettings(ctx, g.ID, 42, func(v *domain.Settings) error {
+			v.AIEnabled = true
+			v.AIThreshold = 30
+			v.ModerationEnabled = true
+			v.SpamEnabled = false
+			v.NewMemberProtection = false
+			v.Rules = map[string]domain.RuleSetting{"url": {Enabled: true, Score: 30}}
+			return nil
+		}); e != nil {
+			t.Fatal(e)
+		}
+		oldAI := svc.AI
+		defer func() { svc.AI = oldAI }()
+		aiCalls := 0
+		svc.AI = reviewFunc(func(_ context.Context, n domain.Normalized, _ domain.Risk) (domain.AIResult, error) {
+			aiCalls++
+			return domain.AIResult{IsAd: strings.Contains(n.Text, "special sample"), Confidence: .7, Category: "promotion", Severity: "medium", Reason: "test", RecommendedAction: "delete"}, nil
+		})
+		target := domain.Message{ID: 99001, Chat: g, From: &domain.User{ID: 99110}, Text: "special sample"}
+		request := domain.Message{ID: 99002, Chat: g, From: &domain.User{ID: 42}, Reply: &target, Text: "/check"}
+		before := count("deleteMessage")
+		if e := svc.Review(ctx, 99002, request); e != nil {
+			t.Fatal(e)
+		}
+		if count("deleteMessage") != before+1 {
+			t.Fatal("manual ad was not deleted")
+		}
+		var warnings int
+		if e := db.DB.QueryRow("SELECT COUNT(*) FROM punishments WHERE chat_id=? AND source='review' AND status='done' AND decision->>'$.action'='warn'", g.ID).Scan(&warnings); e != nil || warnings != 1 {
+			t.Fatal(warnings, e)
+		}
+		if e := svc.Review(ctx, 99003, request); e != nil {
+			t.Fatal(e)
+		}
+		if count("deleteMessage") != before+1 {
+			t.Fatal("same message punished twice")
+		}
+		target.ID = 99004
+		l, e := svc.ModerateResult(ctx, 99004, target)
+		if e != nil || l.Decision.Action != "mute" || l.Decision.Reason != "repeated_ad" {
+			t.Fatal(l.Decision, e)
+		}
+		target.ID = 99005
+		target.From = &domain.User{ID: 99111}
+		l, e = svc.ModerateResult(ctx, 99005, target)
+		if e != nil || l.Decision.Action != "allow" {
+			t.Fatal("another user inherited evidence", l.Decision, e)
+		}
+		original, e := db.GetLog(ctx, fmt.Sprintf("review:%d:%d", g.ID, 99001))
+		if e != nil {
+			t.Fatal(e)
+		}
+		if e = db.Feedback(ctx, g.ID, original.ID, 42, "false positive"); e != nil {
+			t.Fatal(e)
+		}
+		target.ID = 99006
+		target.From = &domain.User{ID: 99110}
+		l, e = svc.ModerateResult(ctx, 99006, target)
+		if e != nil || l.Decision.Action != "allow" {
+			t.Fatal("feedback did not clear evidence", l.Decision, e)
+		}
+		for i, score := range []int{29, 30, 90} {
+			if e = db.ChangeSettings(ctx, g.ID, 42, func(v *domain.Settings) error {
+				v.Rules["url"] = domain.RuleSetting{Enabled: true, Score: score}
+				return nil
+			}); e != nil {
+				t.Fatal(e)
+			}
+			callsBefore := aiCalls
+			m := domain.Message{ID: int64(99100 + i), Chat: g, From: &domain.User{ID: 99200}, Text: fmt.Sprintf("https://example.invalid/%d", i)}
+			if _, e = svc.ModerateResult(ctx, m.ID, m); e != nil {
+				t.Fatal(e)
+			}
+			want := callsBefore
+			if score >= 30 {
+				want++
+			}
+			if aiCalls != want {
+				t.Fatal("AI threshold", score, aiCalls, want)
+			}
+		}
+	})
+}
+
+type reviewFunc func(context.Context, domain.Normalized, domain.Risk) (domain.AIResult, error)
+
+func (f reviewFunc) Review(ctx context.Context, n domain.Normalized, r domain.Risk) (domain.AIResult, error) {
+	return f(ctx, n, r)
 }
 
 func testJSON(v any) string {

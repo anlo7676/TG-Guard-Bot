@@ -39,7 +39,7 @@ func (e moderationEngine) decide(ctx context.Context, n domain.Normalized, s dom
 			risk.Matches = append(risk.Matches, domain.Match{Rule: "spam", Score: 100, Reason: fmt.Sprintf("rate=%d duplicate=%d", rate, dup)})
 		}
 	}
-	if s.AIEnabled && e.review != nil && !risk.Spam && risk.Score >= s.AIThreshold && risk.Score < s.DirectThreshold {
+	if s.AIEnabled && e.review != nil && risk.Score >= s.AIThreshold {
 		result = e.review(ctx, n, &risk)
 	}
 	count, err := e.violations.ViolationCount(ctx, n.ChatID, n.UserID)

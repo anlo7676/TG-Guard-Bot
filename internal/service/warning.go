@@ -24,7 +24,9 @@ func warningNotice(l store.Log, u domain.User, s domain.Settings, completed int)
 	} else if l.AI != nil && l.Risk.LocalAction == "" {
 		source = fmt.Sprintf("AI 复核判定广告（置信度 %.0f%%）", l.AI.Confidence*100)
 	}
-	if l.Source != "automatic" {
+	if l.Source == "review" && l.AI != nil {
+		source = fmt.Sprintf("/check AI 判定广告（置信度 %.0f%%）", l.AI.Confidence*100)
+	} else if l.Source != "automatic" {
 		source = "管理员人工警告"
 	}
 	action := "本次处理：警告。"
@@ -32,6 +34,12 @@ func warningNotice(l store.Log, u domain.User, s domain.Settings, completed int)
 		action = "本次处理：原消息已删除，并发出警告。"
 	}
 	lines := []string{mention + "，请遵守群规则。", "判断来源：" + source + "。", action}
+	if l.Decision.Delete && (l.Source == "automatic" || l.Source == "review") {
+		lines = append(lines, fmt.Sprintf("再次发送相同内容将删除并禁言 %s。", warningDuration(s.MuteSeconds)))
+	}
+	if l.Source == "review" {
+		return strings.Join(lines, "\n")
+	}
 	if l.Source == "automatic" {
 		lines = append(lines, fmt.Sprintf("本群累计自动处罚：第 %d 次（不按天清零）。", completed+1))
 	}

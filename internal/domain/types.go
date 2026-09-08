@@ -155,7 +155,7 @@ type RuleSetting struct {
 }
 
 func DefaultSettings() Settings {
-	return Settings{WelcomeEnabled: true, WelcomeText: "欢迎 {name} 加入 {group}！", AdRules: []AdRule{}, VerificationEnabled: true, VerificationTimeout: 180, VerificationType: "math", VerificationFailAction: "kick", ModerationEnabled: true, AIThreshold: 50, DirectThreshold: 80, AIWarnConfidence: .6, AIDeleteConfidence: .8, AIMuteConfidence: .95, SpamEnabled: true, RateLimit: 5, RateWindow: 10, DuplicateLimit: 3, KeywordEnabled: true, AutoDelete: true, AutoWarn: true, AutoMute: true, MuteSeconds: 3600, MuteAfter: 2, BanAfter: 3, NewMemberProtection: true, AdminBypass: true, ReviewAccess: "all", Language: "zh_CN", Rules: map[string]RuleSetting{}}
+	return Settings{WelcomeEnabled: true, WelcomeText: "欢迎 {name} 加入 {group}！", AdRules: []AdRule{}, VerificationEnabled: true, VerificationTimeout: 180, VerificationType: "math", VerificationFailAction: "kick", ModerationEnabled: true, AIThreshold: 30, DirectThreshold: 80, AIWarnConfidence: .6, AIDeleteConfidence: .8, AIMuteConfidence: .95, SpamEnabled: true, RateLimit: 5, RateWindow: 10, DuplicateLimit: 3, KeywordEnabled: true, AutoDelete: true, AutoWarn: true, AutoMute: true, MuteSeconds: 3600, MuteAfter: 2, BanAfter: 3, NewMemberProtection: true, AdminBypass: true, ReviewAccess: "all", Language: "zh_CN", Rules: map[string]RuleSetting{}}
 }
 func (s Settings) Validate() error {
 	if e := s.validateLocalSettings(); e != nil {
