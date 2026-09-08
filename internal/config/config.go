@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 )
 
 type Config struct {
+	TrustedProxies                                       []netip.Prefix
 	AIAllowInsecureHTTP                                  bool
 	RetentionDays                                        int
 	Token, Mode, HTTPAddr, DSN, RedisAddr, RedisPassword string
@@ -50,6 +52,16 @@ func Load() (Config, error) {
 		}
 	}
 	var err error
+	for _, value := range strings.Split(os.Getenv("TRUSTED_PROXY_CIDRS"), ",") {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		prefix, e := netip.ParsePrefix(strings.TrimSpace(value))
+		if e != nil {
+			return c, errors.New("TRUSTED_PROXY_CIDRS must contain valid CIDR ranges")
+		}
+		c.TrustedProxies = append(c.TrustedProxies, prefix)
+	}
 	if c.AIAllowInsecureHTTP, err = strconv.ParseBool(env("AI_ALLOW_INSECURE_HTTP", "false")); err != nil {
 		return c, errors.New("AI_ALLOW_INSECURE_HTTP must be true or false")
 	}

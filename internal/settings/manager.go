@@ -28,6 +28,7 @@ type AI struct {
 	TokenParameter    string `json:"token_parameter"`
 }
 type Config struct {
+	Revision    uint64  `json:"revision"`
 	SuperAdmins []int64 `json:"super_admins"`
 	PanelURL    string  `json:"panel_url"`
 	AI          AI      `json:"ai"`
@@ -43,6 +44,7 @@ type PublicAI struct {
 	TokenParameter    string `json:"token_parameter"`
 }
 type Public struct {
+	Revision    uint64   `json:"revision"`
 	SuperAdmins []int64  `json:"super_admins"`
 	PanelURL    string   `json:"panel_url"`
 	AI          PublicAI `json:"ai"`
@@ -51,7 +53,7 @@ type Public struct {
 func (c Config) Public() Public {
 	ids := append([]int64{}, c.SuperAdmins...)
 	a := c.AI
-	return Public{ids, c.PanelURL, PublicAI{a.AllowInsecureHTTP, a.Enabled, a.BaseURL, a.Model, a.APIKey != "", a.TimeoutSeconds, a.MaxTokens, a.TokenParameter}}
+	return Public{c.Revision, ids, c.PanelURL, PublicAI{a.AllowInsecureHTTP, a.Enabled, a.BaseURL, a.Model, a.APIKey != "", a.TimeoutSeconds, a.MaxTokens, a.TokenParameter}}
 }
 func (c Config) Validate() error {
 	if len(c.SuperAdmins) > 100 {
@@ -157,10 +159,16 @@ func (m *Manager) IsAdmin(id int64) bool {
 }
 
 // Empty APIKey retains the stored key. Clearing a key is explicit and requires disabling AI.
+var ErrConflict = errors.New("配置已被其他管理员修改，请刷新后重新编辑")
+
 func (m *Manager) Save(ctx context.Context, next Config, clearKey bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	old := m.Snapshot()
+	if next.Revision != old.Revision {
+		return ErrConflict
+	}
+	next.Revision = old.Revision + 1
 	if clearKey {
 		next.AI.APIKey = ""
 	} else if next.AI.APIKey == "" {

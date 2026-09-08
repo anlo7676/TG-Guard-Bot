@@ -61,6 +61,13 @@ func (s *Service) Protected(ctx context.Context, chat int64, u domain.User) (boo
 
 // Cache is only for the analysis pipeline. Every punishment rechecks live permissions.
 func (s *Service) ModerationProtected(ctx context.Context, chat int64, u domain.User) (bool, error) {
+	kind, e := s.Store.ListStatus(ctx, chat, u.ID, u.Username)
+	if e != nil {
+		return true, e
+	}
+	return s.moderationProtected(ctx, chat, u, kind)
+}
+func (s *Service) moderationProtected(ctx context.Context, chat int64, u domain.User, kind string) (bool, error) {
 	if u.IsBot || u.ID == s.Bot.ID || s.IsSuperAdmin(u.ID) {
 		return true, nil
 	}
@@ -79,8 +86,7 @@ func (s *Service) ModerationProtected(ctx context.Context, chat int64, u domain.
 			return true, nil
 		}
 	}
-	kind, e := s.Store.ListStatus(ctx, chat, u.ID, u.Username)
-	return kind == "white" || kind == "trusted", e
+	return kind == "white" || kind == "trusted", nil
 }
 func (s *Service) Say(ctx context.Context, chat int64, lang, key string, args ...any) error {
 	_, e := s.Bot.Send(ctx, chat, i18n.Text(lang, key, args...), nil, 0)

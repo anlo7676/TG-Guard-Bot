@@ -35,7 +35,8 @@ func TestPunishmentRechecksAdminBeforeDestructiveCalls(t *testing.T) {
 	decision := domain.Decision{Action: "ban", Delete: true}
 	mock.ExpectQuery("SELECT EXISTS").WillReturnRows(sqlmock.NewRows([]string{"ok"}).AddRow(true))
 	mock.ExpectExec("INSERT IGNORE INTO punishments").WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectQuery("SELECT decision,status,deleted,acted,created_at FROM punishments").WillReturnRows(sqlmock.NewRows([]string{"decision", "status", "deleted", "acted", "created_at"}).AddRow(store.JSON(decision), "pending", false, false, time.Now()))
+	mock.ExpectExec("INSERT IGNORE INTO punishment_workflows").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery("SELECT decision,status,deleted,acted,created_at").WillReturnRows(sqlmock.NewRows([]string{"decision", "status", "deleted", "acted", "created_at", "started"}).AddRow(testJSON(decision), "pending", false, false, time.Now(), false))
 	mock.ExpectExec("UPDATE punishments SET status='skipped'").WithArgs("test").WillReturnResult(sqlmock.NewResult(0, 1))
 	s := &Service{Store: &store.Store{DB: db}, State: cache, Bot: &telegram.Client{BaseURL: srv.URL, HTTP: srv.Client()}}
 	if e = s.Punish(context.Background(), store.Log{EventKey: "test", ChatID: -100, UserID: 42, MessageID: 1, Decision: decision, Source: "automatic"}, 0); e != nil {
@@ -56,7 +57,8 @@ func TestCompletedPunishmentRetryDoesNotCallTelegram(t *testing.T) {
 	defer cache.R.Close()
 	mock.ExpectQuery("SELECT EXISTS").WillReturnRows(sqlmock.NewRows([]string{"ok"}).AddRow(true))
 	mock.ExpectExec("INSERT IGNORE INTO punishments").WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectQuery("SELECT decision,status,deleted,acted,created_at FROM punishments").WillReturnRows(sqlmock.NewRows([]string{"decision", "status", "deleted", "acted", "created_at"}).AddRow(`{"action":"ban"}`, "done", true, true, time.Now()))
+	mock.ExpectExec("INSERT IGNORE INTO punishment_workflows").WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectQuery("SELECT decision,status,deleted,acted,created_at").WillReturnRows(sqlmock.NewRows([]string{"decision", "status", "deleted", "acted", "created_at", "started"}).AddRow(`{"action":"ban"}`, "done", true, true, time.Now(), true))
 	s := &Service{Store: &store.Store{DB: db}, State: cache}
 	if e = s.Punish(context.Background(), store.Log{EventKey: "done", ChatID: -100, UserID: 42, Decision: domain.Decision{Action: "ban"}}, 0); e != nil {
 		t.Fatal(e)
@@ -64,4 +66,12 @@ func TestCompletedPunishmentRetryDoesNotCallTelegram(t *testing.T) {
 	if e = mock.ExpectationsWereMet(); e != nil {
 		t.Fatal(e)
 	}
+}
+
+func testJSON(v any) string {
+	b, e := json.Marshal(v)
+	if e != nil {
+		panic(e)
+	}
+	return string(b)
 }

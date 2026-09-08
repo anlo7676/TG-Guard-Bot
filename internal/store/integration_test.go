@@ -35,7 +35,7 @@ func TestMySQLIntegration(t *testing.T) {
 	if e = s.Migrate(ctx); e != nil {
 		t.Fatal("migration not idempotent", e)
 	}
-	for _, table := range []string{"web_credentials", "verification_answers", "welcome_cleanup", "bot_groups", "users", "group_members", "group_settings", "list_entries", "keyword_rules", "verification_sessions", "moderation_logs", "punishments", "ai_usage_logs", "admin_audits", "feedback", "update_inbox", "bot_state", "system_settings"} {
+	for _, table := range []string{"punishment_workflows", "authorization_epochs", "web_credentials", "verification_answers", "welcome_cleanup", "bot_groups", "users", "group_members", "group_settings", "list_entries", "keyword_rules", "verification_sessions", "moderation_logs", "punishments", "ai_usage_logs", "admin_audits", "feedback", "update_inbox", "bot_state", "system_settings"} {
 		if _, e = s.DB.ExecContext(ctx, "TRUNCATE TABLE "+table); e != nil {
 			t.Fatal(e)
 		}

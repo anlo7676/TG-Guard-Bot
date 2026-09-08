@@ -3,9 +3,12 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 )
 
 const takeoverActions = "JSON_UNQUOTE(JSON_EXTRACT(decision,'$.action')) IN ('mute','ban','kick','unmute')"
+
+var ErrAuthorityChanged = errors.New("群授权已变更，权限操作进入补偿恢复")
 
 // Pending punishment is the durable takeover intent. Verification stays intact
 // until the Telegram operation succeeds and the acted/cancelled state commits.
@@ -20,11 +23,29 @@ func (s *Store) CompleteTakeover(ctx context.Context, l Log) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(ctx, "UPDATE verification_sessions SET status='cancelled' WHERE chat_id=? AND user_id=? AND status IN ('pending','completing','expiring','releasing')", l.ChatID, l.UserID); err != nil {
+	var authorized bool
+	if err = tx.QueryRowContext(ctx, "SELECT active AND authorization='approved' FROM bot_groups WHERE chat_id=? FOR UPDATE", l.ChatID).Scan(&authorized); err != nil {
 		return err
+	}
+	var valid bool
+	if err = tx.QueryRowContext(ctx, "SELECT p.status='pending' AND w.authority_version=COALESCE((SELECT version FROM authorization_epochs WHERE chat_id=p.chat_id),0) FROM punishments p JOIN punishment_workflows w ON w.event_key=p.event_key WHERE p.event_key=? FOR UPDATE", l.EventKey).Scan(&valid); err != nil {
+		return err
+	}
+	if !authorized || !valid {
+		return ErrAuthorityChanged
+	}
+	if l.Decision.Action != "unban" {
+		if _, err = tx.ExecContext(ctx, "UPDATE verification_sessions SET status='cancelled' WHERE chat_id=? AND user_id=? AND status IN ('pending','completing','expiring','releasing')", l.ChatID, l.UserID); err != nil {
+			return err
+		}
 	}
 	if _, err = tx.ExecContext(ctx, "UPDATE punishments SET acted=TRUE WHERE event_key=? AND status='pending'", l.EventKey); err != nil {
 		return err
+	}
+	if l.Source == "manual" {
+		if _, err = tx.ExecContext(ctx, `UPDATE punishments older JOIN punishments current ON current.event_key=? SET older.status='skipped' WHERE older.chat_id=current.chat_id AND older.user_id=current.user_id AND older.id<current.id AND older.status='pending'`, l.EventKey); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
@@ -39,7 +60,10 @@ type Takeover struct {
 }
 
 func (s *Store) PendingTakeovers(ctx context.Context) ([]Takeover, error) {
-	rows, err := s.DB.QueryContext(ctx, "SELECT event_key,chat_id,user_id,message_id,decision,source,actor_id FROM punishments p WHERE status='pending' AND "+takeoverActions+" AND EXISTS(SELECT 1 FROM verification_sessions v WHERE v.chat_id=p.chat_id AND v.user_id=p.user_id AND v.status IN ('pending','completing','expiring','releasing')) ORDER BY updated_at LIMIT 100")
+	rows, err := s.DB.QueryContext(ctx, `SELECT event_key,chat_id,user_id,message_id,decision,source,actor_id FROM (
+ SELECT p.*,w.next_attempt_at,ROW_NUMBER() OVER(PARTITION BY p.chat_id ORDER BY w.next_attempt_at,p.id) pos
+ FROM punishments p JOIN punishment_workflows w ON w.event_key=p.event_key
+ WHERE p.status='pending' AND w.attempts<20 AND w.next_attempt_at<=UTC_TIMESTAMP(6)) q WHERE pos<=2 ORDER BY next_attempt_at LIMIT 100`)
 	if err != nil {
 		return nil, err
 	}

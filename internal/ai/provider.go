@@ -49,7 +49,11 @@ func (p *Compatible) Review(ctx context.Context, n domain.Normalized, r domain.R
 		Risk     domain.Risk         `json:"risk"`
 		Contexts []domain.Normalized `json:"contexts,omitempty"`
 	}{n.Text, n.URLs, n.Mentions, n.IsNew, n.FirstMessage, r, n.Contexts}
-	text := store.JSON(input)
+	encoded, e := json.Marshal(input)
+	if e != nil {
+		return result, fmt.Errorf("AI input encoding failed: %w", e)
+	}
+	text := string(encoded)
 	cacheKey := "ai:moderation:" + state.Hash(fmt.Sprintf("v1:%s:%s:%d:%s", p.BaseURL, p.Model, n.ChatID, text))
 	start := time.Now()
 	stage, stageStart := "cache_read", start

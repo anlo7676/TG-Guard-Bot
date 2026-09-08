@@ -167,7 +167,7 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 			return s.listSummary(ctx, m, kind)
 		}
 		if args[0] != "add" && args[0] != "remove" {
-			return s.text(ctx, m.Chat.ID, "用法：/"+command+" add|remove 用户ID或@username，也可回复用户消息。")
+			return s.text(ctx, m.Chat.ID, "用法：/"+command+" add|remove 数字用户 ID，也可回复用户消息；旧用户名条目仅可删除。")
 		}
 		l := domain.ListEntry{ChatID: m.Chat.ID, Kind: kind, Reason: "Telegram 管理员命令"}
 		if len(args) > 1 {

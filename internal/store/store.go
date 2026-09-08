@@ -64,7 +64,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if locked != 1 {
 		return fmt.Errorf("migration lock unavailable")
 	}
-	defer c.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", lockName)
+	defer ReleaseLock(c, lockName)
 	if _, e = c.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS schema_migrations (version VARCHAR(255) PRIMARY KEY, applied_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6))"); e != nil {
 		return e
 	}
@@ -99,7 +99,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 	}
 	return ensureMaintenanceIndexes(ctx, c)
 }
-func JSON(v any) string { b, _ := json.Marshal(v); return string(b) }
+
 func (s *Store) RegisterGroup(ctx context.Context, c domain.Chat) error {
 	_, e := s.DB.ExecContext(ctx, "INSERT INTO bot_groups(chat_id,title) VALUES(?,?) ON DUPLICATE KEY UPDATE title=VALUES(title),active=TRUE", c.ID, c.Title)
 	return e
@@ -156,7 +156,7 @@ func audit(ctx context.Context, tx *sql.Tx, chat, actor int64, action string, ol
 	if actor == 0 {
 		actor, _ = ctx.Value(auditActorKey{}).(int64)
 	}
-	_, e := tx.ExecContext(ctx, "INSERT INTO admin_audits(chat_id,actor_id,action,old_value,new_value) VALUES(?,?,?,?,?)", chat, actor, action, JSON(old), JSON(new))
+	_, e := tx.ExecContext(ctx, "INSERT INTO admin_audits(chat_id,actor_id,action,old_value,new_value) VALUES(?,?,?,?,?)", chat, actor, action, SQLJSON(old), SQLJSON(new))
 	return e
 }
 func (s *Store) SaveSettings(ctx context.Context, chat, actor int64, v domain.Settings) error {
@@ -173,7 +173,7 @@ func (s *Store) SaveSettings(ctx context.Context, chat, actor int64, v domain.Se
 	if e != nil && e != sql.ErrNoRows {
 		return e
 	}
-	if _, e = tx.ExecContext(ctx, "INSERT INTO group_settings(chat_id,settings) VALUES(?,?) ON DUPLICATE KEY UPDATE settings=VALUES(settings)", chat, JSON(v)); e != nil {
+	if _, e = tx.ExecContext(ctx, "INSERT INTO group_settings(chat_id,settings) VALUES(?,?) ON DUPLICATE KEY UPDATE settings=VALUES(settings)", chat, SQLJSON(v)); e != nil {
 		return e
 	}
 	var before any
@@ -187,13 +187,16 @@ func (s *Store) SaveSettings(ctx context.Context, chat, actor int64, v domain.Se
 }
 func (s *Store) ListStatus(ctx context.Context, chat, user int64, username string) (string, error) {
 	var kind string
-	e := s.DB.QueryRowContext(ctx, `SELECT kind FROM list_entries WHERE chat_id IN (0,?) AND (user_id=? OR (username<>'' AND username=?)) AND (expires_at IS NULL OR expires_at>UTC_TIMESTAMP(6)) ORDER BY FIELD(kind,'black','white','trusted') LIMIT 1`, chat, user, username).Scan(&kind)
+	e := s.DB.QueryRowContext(ctx, `SELECT kind FROM list_entries WHERE chat_id IN (0,?) AND user_id=? AND user_id>0 AND (expires_at IS NULL OR expires_at>UTC_TIMESTAMP(6)) ORDER BY FIELD(kind,'black','white','trusted') LIMIT 1`, chat, user).Scan(&kind)
 	if e == sql.ErrNoRows {
 		return "", nil
 	}
 	return kind, e
 }
 func (s *Store) SaveList(ctx context.Context, l domain.ListEntry, actor int64, remove bool) error {
+	if !remove && l.UserID <= 0 {
+		return fmt.Errorf("名单必须绑定数字用户 ID；请回复目标消息添加，旧用户名条目仅保留供删除")
+	}
 	if e := l.Validate(); e != nil {
 		return e
 	}
@@ -252,7 +255,7 @@ func (s *Store) SaveKeyword(ctx context.Context, k domain.Keyword, actor int64) 
 	defer tx.Rollback()
 	var before json.RawMessage
 	if k.ID == 0 {
-		r, e := tx.ExecContext(ctx, "INSERT INTO keyword_rules(chat_id,keyword,match_type,reply_type,content,priority,enabled,reply,created_by,buttons) VALUES(?,?,?,?,?,?,?,?,?,?)", k.ChatID, k.Keyword, k.MatchType, k.ReplyType, k.Content, k.Priority, k.Enabled, k.Reply, actor, JSON(k.Buttons))
+		r, e := tx.ExecContext(ctx, "INSERT INTO keyword_rules(chat_id,keyword,match_type,reply_type,content,priority,enabled,reply,created_by,buttons) VALUES(?,?,?,?,?,?,?,?,?,?)", k.ChatID, k.Keyword, k.MatchType, k.ReplyType, k.Content, k.Priority, k.Enabled, k.Reply, actor, SQLJSON(k.Buttons))
 		if e != nil {
 			return 0, e
 		}
@@ -264,7 +267,7 @@ func (s *Store) SaveKeyword(ctx context.Context, k domain.Keyword, actor int64) 
 		if e = tx.QueryRowContext(ctx, "SELECT JSON_OBJECT('id',id,'keyword',keyword,'match_type',match_type,'reply_type',reply_type,'content',content,'priority',priority,'enabled',enabled,'reply',reply,'buttons',buttons) FROM keyword_rules WHERE id=? AND chat_id=? FOR UPDATE", k.ID, k.ChatID).Scan(&before); e != nil {
 			return 0, e
 		}
-		_, e = tx.ExecContext(ctx, "UPDATE keyword_rules SET keyword=?,match_type=?,reply_type=?,content=?,priority=?,enabled=?,reply=?,buttons=? WHERE id=? AND chat_id=?", k.Keyword, k.MatchType, k.ReplyType, k.Content, k.Priority, k.Enabled, k.Reply, JSON(k.Buttons), k.ID, k.ChatID)
+		_, e = tx.ExecContext(ctx, "UPDATE keyword_rules SET keyword=?,match_type=?,reply_type=?,content=?,priority=?,enabled=?,reply=?,buttons=? WHERE id=? AND chat_id=?", k.Keyword, k.MatchType, k.ReplyType, k.Content, k.Priority, k.Enabled, k.Reply, SQLJSON(k.Buttons), k.ID, k.ChatID)
 		if e != nil {
 			return 0, e
 		}
@@ -288,7 +291,10 @@ func (s *Store) DeleteKeyword(ctx context.Context, chat, id, actor int64) error 
 	if e != nil {
 		return e
 	}
-	n, _ := r.RowsAffected()
+	n, e := r.RowsAffected()
+	if e != nil {
+		return e
+	}
 	if n == 0 {
 		return sql.ErrNoRows
 	}
@@ -297,9 +303,15 @@ func (s *Store) DeleteKeyword(ctx context.Context, chat, id, actor int64) error 
 	}
 	return tx.Commit()
 }
-func (s *Store) ViolationCount(ctx context.Context, chat, user int64) (int, error) {
+func (s *Store) ViolationCount(ctx context.Context, chat, user int64, exclude ...string) (int, error) {
 	var n int
-	e := s.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM punishments WHERE chat_id=? AND user_id=? AND status='done' AND source='automatic'", chat, user).Scan(&n)
+	q := "SELECT COUNT(*) FROM punishments WHERE chat_id=? AND user_id=? AND (status='done' OR acted=TRUE OR deleted=TRUE) AND source='automatic'"
+	args := []any{chat, user}
+	if len(exclude) > 0 {
+		q += " AND event_key<>?"
+		args = append(args, exclude[0])
+	}
+	e := s.DB.QueryRowContext(ctx, q, args...).Scan(&n)
 	return n, e
 }
 
@@ -365,13 +377,16 @@ func (s *Store) SaveLog(ctx context.Context, l Log) (Log, error) {
 	defer tx.Rollback()
 	var ai any
 	if l.AI != nil {
-		ai = JSON(l.AI)
+		ai = SQLJSON(l.AI)
 	}
-	r, e := tx.ExecContext(ctx, "INSERT IGNORE INTO moderation_logs(event_key,chat_id,user_id,message_id,message_text,risk_score,matched_rules,ai_result,decision,source) VALUES(?,?,?,?,?,?,?,?,?,?)", l.EventKey, l.ChatID, l.UserID, l.MessageID, l.Text, l.Risk.Score, JSON(l.Risk.Matches), ai, JSON(l.Decision), l.Source)
+	r, e := tx.ExecContext(ctx, "INSERT IGNORE INTO moderation_logs(event_key,chat_id,user_id,message_id,message_text,risk_score,matched_rules,ai_result,decision,source) VALUES(?,?,?,?,?,?,?,?,?,?)", l.EventKey, l.ChatID, l.UserID, l.MessageID, l.Text, l.Risk.Score, SQLJSON(l.Risk.Matches), ai, SQLJSON(l.Decision), l.Source)
 	if e != nil {
 		return l, e
 	}
-	n, _ := r.RowsAffected()
+	n, e := r.RowsAffected()
+	if e != nil {
+		return l, e
+	}
 	if n > 0 && l.Source == "automatic" {
 		if _, e = tx.ExecContext(ctx, "INSERT INTO group_members(chat_id,user_id,message_count) VALUES(?,?,1) ON DUPLICATE KEY UPDATE message_count=message_count+1", l.ChatID, l.UserID); e != nil {
 			return l, e
@@ -380,24 +395,31 @@ func (s *Store) SaveLog(ctx context.Context, l Log) (Log, error) {
 	if e = tx.Commit(); e != nil {
 		return l, e
 	}
+	if n > 0 {
+		l.ID, e = r.LastInsertId()
+		return l, e
+	}
 	return s.GetLog(ctx, l.EventKey)
 }
 
 type Punishment struct {
-	Decision       domain.Decision
-	Status         string
-	Deleted, Acted bool
-	CreatedAt      time.Time
+	Decision                domain.Decision
+	Status                  string
+	Deleted, Acted, Started bool
+	CreatedAt               time.Time
 }
 
 func (s *Store) PreparePunishment(ctx context.Context, l Log, actor int64) (Punishment, error) {
 	var p Punishment
-	_, e := s.DB.ExecContext(ctx, "INSERT IGNORE INTO punishments(event_key,chat_id,user_id,message_id,decision,source,actor_id) VALUES(?,?,?,?,?,?,?)", l.EventKey, l.ChatID, l.UserID, l.MessageID, JSON(l.Decision), l.Source, actor)
+	_, e := s.DB.ExecContext(ctx, "INSERT IGNORE INTO punishments(event_key,chat_id,user_id,message_id,decision,source,actor_id) VALUES(?,?,?,?,?,?,?)", l.EventKey, l.ChatID, l.UserID, l.MessageID, SQLJSON(l.Decision), l.Source, actor)
 	if e != nil {
 		return p, e
 	}
+	if _, e = s.DB.ExecContext(ctx, "INSERT IGNORE INTO punishment_workflows(event_key,authority_version) SELECT ?,COALESCE((SELECT version FROM authorization_epochs WHERE chat_id=?),0)", l.EventKey, l.ChatID); e != nil {
+		return p, e
+	}
 	var b []byte
-	e = s.DB.QueryRowContext(ctx, "SELECT decision,status,deleted,acted,created_at FROM punishments WHERE event_key=?", l.EventKey).Scan(&b, &p.Status, &p.Deleted, &p.Acted, &p.CreatedAt)
+	e = s.DB.QueryRowContext(ctx, "SELECT decision,status,deleted,acted,created_at,(SELECT started FROM punishment_workflows w WHERE w.event_key=p.event_key) FROM punishments p WHERE event_key=?", l.EventKey).Scan(&b, &p.Status, &p.Deleted, &p.Acted, &p.CreatedAt, &p.Started)
 	if e == nil {
 		e = json.Unmarshal(b, &p.Decision)
 	}
@@ -407,13 +429,13 @@ func (s *Store) PunishmentStep(ctx context.Context, key, step string) error {
 	var q string
 	switch step {
 	case "deleted":
-		q = "UPDATE punishments SET deleted=TRUE WHERE event_key=?"
+		q = "UPDATE punishments SET deleted=TRUE WHERE event_key=? AND status='pending'"
 	case "acted":
-		q = "UPDATE punishments SET acted=TRUE WHERE event_key=?"
+		q = "UPDATE punishments SET acted=TRUE WHERE event_key=? AND status='pending'"
 	case "done":
-		q = "UPDATE punishments SET status='done',last_error='' WHERE event_key=?"
+		q = "UPDATE punishments SET status='done',last_error='' WHERE event_key=? AND status='pending'"
 	case "skipped":
-		q = "UPDATE punishments SET status='skipped' WHERE event_key=?"
+		q = "UPDATE punishments SET status='skipped' WHERE event_key=? AND status='pending'"
 	default:
 		return fmt.Errorf("invalid step")
 	}

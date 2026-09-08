@@ -181,7 +181,7 @@ func (s *Service) groupAction(ctx context.Context, m domain.Message, chat int64,
 		if len(p) != 4 || !strings.Contains("|white|black|trusted|", "|"+p[3]+"|") {
 			return true, nil
 		}
-		return true, s.promptGroup(ctx, m, chat, "list", p[3], "添加本群名单：用户数字 ID 或 @用户名，空格后可填写原因。\n黑名单将在该用户后续入群或发言时生效。")
+		return true, s.promptGroup(ctx, m, chat, "list", p[3], "添加本群名单：用户数字 ID，空格后可填写原因；不使用可转让的用户名授权。\n黑名单将在该用户后续入群或发言时生效。")
 	case "listDelete", "listDeleteYes":
 		if len(p) != 4 {
 			return true, nil

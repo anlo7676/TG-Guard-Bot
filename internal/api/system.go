@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"tgguard/internal/buildinfo"
 	"tgguard/internal/domain"
@@ -38,6 +39,10 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if e := s.Service.Runtime.Save(r.Context(), body.Config, body.ClearKey); e != nil {
+		if errors.Is(e, settings.ErrConflict) {
+			respond(w, 409, map[string]string{"error": e.Error()})
+			return
+		}
 		apiError(w, e)
 		return
 	}

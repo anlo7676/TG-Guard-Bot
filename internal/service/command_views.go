@@ -25,15 +25,11 @@ func rulesSummary(v domain.Settings) string {
 	return text + fmt.Sprintf("\n自定义广告规则：%d 条。点击按钮设置命中动作。", len(v.AdRules))
 }
 func (s *Service) statsSummary(ctx context.Context, chat int64) (string, error) {
-	rows, e := s.Store.View(ctx, store.ViewGroupStats, chat, chat, chat)
+	r, e := s.Store.GroupStatistics(ctx, chat)
 	if e != nil {
 		return "", e
 	}
-	if len(rows) == 0 {
-		return "本群统计\n暂无统计记录。", nil
-	}
-	r := rows[0]
-	return fmt.Sprintf("本群统计\n已记录在群成员：%v\n累计审核消息：%v\n已完成处罚：%v\n成员数仅统计机器人已记录的成员。", r["known_members"], r["reviewed_messages"], r["punishments"]), nil
+	return fmt.Sprintf("本群统计\n已记录在群成员：%d\n累计审核消息：%d\n已完成处罚：%d\n成员数仅统计机器人已记录的成员。", r.KnownMembers, r.ReviewedMessages, r.Punishments), nil
 }
 func commandExcerpt(value string, limit int) string {
 	v := []rune(strings.Join(strings.Fields(value), " "))

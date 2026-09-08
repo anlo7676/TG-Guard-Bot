@@ -10,7 +10,7 @@ import (
 )
 
 func (s *Store) Enqueue(ctx context.Context, u domain.Update) error {
-	_, e := s.DB.ExecContext(ctx, "INSERT IGNORE INTO update_inbox(update_id,partition_id,payload) VALUES(?,?,?)", u.ID, u.Partition(), JSON(u))
+	_, e := s.DB.ExecContext(ctx, "INSERT IGNORE INTO update_inbox(update_id,partition_id,payload) VALUES(?,?,?)", u.ID, u.Partition(), SQLJSON(u))
 	return e
 }
 func (s *Store) Offset(ctx context.Context) (int64, error) {

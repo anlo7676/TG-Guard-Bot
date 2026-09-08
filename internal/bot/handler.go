@@ -100,10 +100,7 @@ func (h *Handler) Handle(ctx context.Context, u domain.Update) error {
 		return nil
 	}
 	// A command or bot mention must not provide an escape hatch for advertising.
-	if e := s.Moderate(ctx, u.ID, *m); e != nil {
-		return e
-	}
-	l, e := s.Store.GetLog(ctx, fmt.Sprintf("auto:%d", u.ID))
+	l, e := s.ModerateResult(ctx, u.ID, *m)
 	if e != nil {
 		return e
 	}

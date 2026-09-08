@@ -9,7 +9,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -97,10 +96,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 		defer cancel()
 		r = r.WithContext(ctx)
 		if s.Service.State != nil {
-			host, _, e := net.SplitHostPort(r.RemoteAddr)
-			if e != nil {
-				host = r.RemoteAddr
-			}
+			host := s.clientAddress(r)
 			ok, e := s.Service.State.Limit(ctx, "api:rate:"+host, 120, time.Minute)
 			if e != nil {
 				respond(w, 503, map[string]string{"error": "rate limiter unavailable"})
@@ -330,6 +326,10 @@ func (s *Server) lists(w http.ResponseWriter, r *http.Request) {
 	}
 	l.ChatID = chat
 	l.Username = strings.TrimPrefix(l.Username, "@")
+	if r.Method != "DELETE" && l.UserID <= 0 {
+		respond(w, 400, map[string]string{"error": "请填写数字用户 ID；用户名不能作为授权身份"})
+		return
+	}
 	if e := l.Validate(); e != nil {
 		respond(w, 400, map[string]string{"error": e.Error()})
 		return

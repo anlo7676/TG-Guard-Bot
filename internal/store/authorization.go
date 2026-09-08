@@ -55,6 +55,12 @@ func (s *Store) changeAuthorization(ctx context.Context, chat, actor int64, stat
 		return e
 	}
 	if status != "approved" {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO authorization_epochs(chat_id,version) VALUES(?,1) ON DUPLICATE KEY UPDATE version=version+1", chat); e != nil {
+			return e
+		}
+		if _, e = tx.ExecContext(ctx, "UPDATE punishment_workflows w JOIN punishments p ON p.event_key=w.event_key SET w.release_needed=TRUE,w.release_at=UTC_TIMESTAMP(6) WHERE p.chat_id=? AND p.status='pending' AND w.started=TRUE AND JSON_UNQUOTE(JSON_EXTRACT(p.decision,'$.action')) IN ('mute','ban','kick')", chat); e != nil {
+			return e
+		}
 		if _, e = tx.ExecContext(ctx, "UPDATE verification_sessions SET status='releasing',next_attempt_at=UTC_TIMESTAMP(6) WHERE chat_id=? AND status IN ('pending','completing','expiring')", chat); e != nil {
 			return e
 		}

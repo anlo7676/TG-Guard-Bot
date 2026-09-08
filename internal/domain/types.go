@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"tgguard/internal/patterns"
 	"time"
 )
 
@@ -281,7 +282,7 @@ func (k Keyword) Validate() error {
 		return errors.New("invalid keyword")
 	}
 	if k.MatchType == "regex" {
-		_, e := regexp.Compile(k.Keyword)
+		_, e := patterns.Compile(k.Keyword)
 		return e
 	}
 	return nil

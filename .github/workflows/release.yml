@@ -8,6 +8,9 @@ jobs:
   validate:
     uses: ./.github/workflows/ci.yml
   binaries:
+    concurrency:
+      group: stable-release-publication
+      cancel-in-progress: false
     needs: validate
     runs-on: ubuntu-latest
     steps:
@@ -33,7 +36,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/tgguard-linux-* dist/SHA256SUMS --prerelease --verify-tag --title "TG Guard $GITHUB_REF_NAME" --notes 'Linux amd64 / arm64 预编译程序及 SHA-256 校验文件。镜像验收完成后自动转为稳定版。'
+          bash scripts/release.sh upload
       - name: Verify published runtime image
         run: docker build --build-arg RELEASE_VERSION="$GITHUB_REF_NAME" -t tgguard:release .
       - name: Smoke test runtime binary
@@ -41,4 +44,4 @@ jobs:
       - name: Promote validated stable release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release edit "$GITHUB_REF_NAME" --prerelease=false --latest
+        run: bash scripts/release.sh promote

@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-
 	"net/http"
 	"os"
 	"os/signal"
@@ -42,6 +41,12 @@ func run() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	return runApplication(ctx, c, *migrateOnly, telegram.New)
+}
+
+func runApplication(parent context.Context, c config.Config, migrateOnly bool, newTelegram func(string, *state.State) *telegram.Client) error {
+	ctx, stop := context.WithCancel(parent)
+	defer stop()
 	startup, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	db, e := store.Open(startup, c.DSN)
@@ -52,7 +57,7 @@ func run() error {
 	if e = db.Migrate(startup); e != nil {
 		return e
 	}
-	if *migrateOnly {
+	if migrateOnly {
 		slog.Info("database migrations complete")
 		return nil
 	}
@@ -61,7 +66,7 @@ func run() error {
 	if e = cache.R.Ping(startup).Err(); e != nil {
 		return fmt.Errorf("Redis unavailable: %w", e)
 	}
-	tg := telegram.New(c.Token, nil)
+	tg := newTelegram(c.Token, nil)
 	if e = tg.Identify(startup); e != nil {
 		return e
 	}
@@ -81,7 +86,10 @@ func run() error {
 		return e
 	}
 	provider := &ai.Live{Settings: runtime, State: cache, Store: db, Slots: make(chan struct{}, c.AIConcurrency)}
-	svc := &service.Service{Health: service.NewIngestionHealth(c.Mode), RetentionDays: c.RetentionDays, Store: db, State: cache, Bot: tg, AI: provider, SuperAdmins: c.SuperAdmins, Runtime: runtime}
+	svc, e := service.New(service.Service{Health: service.NewIngestionHealth(c.Mode), RetentionDays: c.RetentionDays, Store: db, State: cache, Bot: tg, AI: provider, SuperAdmins: c.SuperAdmins, Runtime: runtime})
+	if e != nil {
+		return e
+	}
 	handler := &bot.Handler{Service: svc}
 	web := &api.Server{Service: svc, Config: c}
 	server := newHTTPServer(ctx, c.HTTPAddr, web.Handler())
@@ -103,7 +111,7 @@ func run() error {
 	if owned != 1 {
 		return errors.New("another TG Guard instance is running; stop it before starting this instance")
 	}
-	defer leaseConn.ExecContext(context.Background(), "SELECT RELEASE_LOCK(?)", lockName)
+	defer store.ReleaseLock(leaseConn, lockName)
 	if e = svc.RegisterMenus(startup); e != nil {
 		return e
 	}

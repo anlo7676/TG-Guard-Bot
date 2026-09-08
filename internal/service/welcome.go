@@ -116,7 +116,9 @@ func (s *Service) welcomeLocked(ctx context.Context, chat domain.Chat, u domain.
 	}
 	if e = s.Store.MarkWelcomed(ctx, chat.ID, u.ID, message); e != nil {
 		// Avoid leaving an unscheduled welcome when recording fails.
-		if cleanupErr := s.executor().Delete(ctx, chat.ID, message); cleanupErr != nil {
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if cleanupErr := s.executor().Delete(cleanup, chat.ID, message); cleanupErr != nil {
 			slog.Error("unscheduled welcome cleanup failed", "chat_id", chat.ID, "message_id", message, "error", cleanupErr)
 		}
 		return e

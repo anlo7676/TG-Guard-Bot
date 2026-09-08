@@ -13,6 +13,8 @@ node --test scripts/install.test.cjs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 node --test scripts/manage.test.cjs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+node --test scripts/release.test.cjs
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 go vet ./...
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($Race) { go test -race -count=1 ./... } else { go test -count=1 ./... }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/redis/go-redis/v9"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -94,7 +93,7 @@ func (s *Server) loginLimit(w http.ResponseWriter, r *http.Request) bool {
 		respond(w, 403, map[string]string{"error": "不允许跨站登录"})
 		return false
 	}
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	host := s.clientAddress(r)
 	ok, e := s.Service.State.Limit(r.Context(), "web:login:"+host, 10, 5*time.Minute)
 	if e != nil {
 		respond(w, 503, map[string]string{"error": "登录服务不可用"})

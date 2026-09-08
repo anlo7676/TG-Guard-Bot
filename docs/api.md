@@ -111,7 +111,11 @@
 }
 ```
 
-`kind` 为 `white`、`black`、`trusted`。username 可带 `@`，服务会去掉前缀。建议使用稳定的 Telegram ID，username 可被用户更改或重新分配。删除时使用 DELETE 并提供相同的 `user_id`、`username`、`kind`。
+`kind` 为 `white`、`black`、`trusted`。新增条目必须提供正数 `user_id`，`username` 仅作备注，不参与身份匹配。旧版本仅含用户名的条目升级后停用，可以 DELETE 并提供原来的 `user_id`、`username`、`kind` 删除。
+
+## 系统设置并发编辑
+
+更新 `/api/v1/system` 时必须携带读取设置时得到的 `revision`；成功保存后版本递增。其他管理员已提交更改时返回 HTTP 409，请重新读取并合并自己的编辑。不要在提交前读取新版本号并套到旧表单上，否则会掩盖冲突。该版本检查作用于系统设置；群设置接口仍以字段补丁事务合并。
 
 ## 误判反馈
 

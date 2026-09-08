@@ -80,6 +80,7 @@ func TestKeyRetainedAndExplicitlyCleared(t *testing.T) {
 	if e = m.Save(ctx, c, false); e != nil || m.Snapshot().AI.APIKey != "saved-key" {
 		t.Fatal(e)
 	}
+	c = m.Snapshot()
 	if e = m.Save(ctx, c, true); e != nil || m.Snapshot().AI.APIKey != "" {
 		t.Fatal(e)
 	}

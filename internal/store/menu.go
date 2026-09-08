@@ -59,14 +59,17 @@ func (s *Store) ChangeSettings(ctx context.Context, chat, actor int64, change fu
 	if v.Rules == nil {
 		v.Rules = map[string]domain.RuleSetting{}
 	}
-	before := JSON(v)
+	before, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
 	if err = change(&v); err != nil {
 		return err
 	}
 	if err = v.Validate(); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO group_settings(chat_id,settings) VALUES(?,?) ON DUPLICATE KEY UPDATE settings=VALUES(settings)", chat, JSON(v)); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO group_settings(chat_id,settings) VALUES(?,?) ON DUPLICATE KEY UPDATE settings=VALUES(settings)", chat, SQLJSON(v)); err != nil {
 		return err
 	}
 	if !v.VerificationEnabled {

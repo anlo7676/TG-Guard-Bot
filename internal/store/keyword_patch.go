@@ -24,14 +24,17 @@ func (s *Store) ChangeKeyword(ctx context.Context, chat, id, actor int64, change
 			return e
 		}
 	}
-	before := JSON(k)
+	before, e := json.Marshal(k)
+	if e != nil {
+		return e
+	}
 	if e = change(&k); e != nil {
 		return e
 	}
 	if e = k.Validate(); e != nil {
 		return e
 	}
-	if _, e = tx.ExecContext(ctx, "UPDATE keyword_rules SET keyword=?,match_type=?,reply_type=?,content=?,priority=?,enabled=?,reply=?,buttons=? WHERE id=? AND chat_id=?", k.Keyword, k.MatchType, k.ReplyType, k.Content, k.Priority, k.Enabled, k.Reply, JSON(k.Buttons), id, chat); e != nil {
+	if _, e = tx.ExecContext(ctx, "UPDATE keyword_rules SET keyword=?,match_type=?,reply_type=?,content=?,priority=?,enabled=?,reply=?,buttons=? WHERE id=? AND chat_id=?", k.Keyword, k.MatchType, k.ReplyType, k.Content, k.Priority, k.Enabled, k.Reply, SQLJSON(k.Buttons), id, chat); e != nil {
 		return e
 	}
 	if e = audit(ctx, tx, chat, actor, "keyword.update", json.RawMessage(before), k); e != nil {

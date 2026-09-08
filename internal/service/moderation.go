@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 	"time"
 
@@ -18,78 +17,68 @@ import (
 )
 
 func (s *Service) Moderate(ctx context.Context, update int64, m domain.Message) error {
+	_, err := s.ModerateResult(ctx, update, m)
+	return err
+}
+func (s *Service) ModerateResult(ctx context.Context, update int64, m domain.Message) (store.Log, error) {
 	if m.From == nil || m.From.IsBot || m.SenderChat != nil || m.Chat.Type != "supergroup" {
-		return nil
+		return store.Log{}, nil
 	}
 	if ok, e := s.Store.GroupAuthorized(ctx, m.Chat.ID); e != nil || !ok {
-		return e
+		return store.Log{}, e
 	}
 	key := eventKey(update, "auto")
 	prior, e := s.Store.GetLog(ctx, key)
 	if e == nil {
-		return s.applyModeration(ctx, m, prior)
+		return prior, s.applyModeration(ctx, m, prior)
 	}
 	if e != sql.ErrNoRows {
-		return e
+		return store.Log{}, e
 	}
 	if e = s.Group(ctx, m.Chat); e != nil {
-		return e
+		return store.Log{}, e
 	}
 	if e = s.Store.User(ctx, *m.From); e != nil {
-		return e
+		return store.Log{}, e
 	}
 	settings, e := s.Store.Settings(ctx, m.Chat.ID)
 	if e != nil {
-		return e
+		return store.Log{}, e
 	}
 	n := rules.Normalize(m)
 	n.IsNew, n.FirstMessage, e = s.Store.Context(ctx, m.Chat.ID, m.From.ID)
 	if e != nil {
-		return e
-	}
-	protected, e := s.ModerationProtected(ctx, m.Chat.ID, *m.From)
-	if e != nil {
-		return e
+		return store.Log{}, e
 	}
 	kind, e := s.Store.ListStatus(ctx, m.Chat.ID, m.From.ID, m.From.Username)
 	if e != nil {
-		return e
+		return store.Log{}, e
+	}
+	protected, e := s.moderationProtected(ctx, m.Chat.ID, *m.From, kind)
+	if e != nil {
+		return store.Log{}, e
 	}
 	l := store.Log{EventKey: key, ChatID: n.ChatID, UserID: n.UserID, MessageID: n.MessageID, Text: m.ModerationText(), Risk: domain.Risk{Matches: []domain.Match{}}, Decision: domain.Decision{Action: "allow", Reason: "moderation_disabled"}, Source: "automatic"}
 	if settings.ModerationEnabled && !(protected && (settings.AdminBypass || kind == "white" || kind == "trusted")) {
-		l.Risk = rules.Evaluate(n, settings)
-		if settings.SpamEnabled {
-			dupText := n.Text
-			if dupText == "" {
-				dupText = strconv.FormatInt(update, 10)
-			}
-			rate, dup, e := s.State.Spam(ctx, n.ChatID, n.UserID, update, dupText, settings.RateWindow)
-			if e != nil {
-				return e
-			}
-			if rate > settings.RateLimit || dup >= settings.DuplicateLimit {
-				l.Risk.Spam = true
-				l.Risk.Score = 100
-				l.Risk.Matches = append(l.Risk.Matches, domain.Match{Rule: "spam", Score: 100, Reason: fmt.Sprintf("rate=%d duplicate=%d", rate, dup)})
+		engine := moderationEngine{violations: s.Store, spam: s.State}
+		if s.AI != nil {
+			engine.review = func(ctx context.Context, n domain.Normalized, r *domain.Risk) *domain.AIResult {
+				return s.reviewAI(ctx, n, r, "automatic", key)
 			}
 		}
-		if settings.AIEnabled && s.AI != nil && !l.Risk.Spam && l.Risk.Score >= settings.AIThreshold && l.Risk.Score < settings.DirectThreshold {
-			l.AI = s.reviewAI(ctx, n, &l.Risk, "automatic", key)
-		}
-		count, e := s.Store.ViolationCount(ctx, n.ChatID, n.UserID)
+		l.Risk, l.AI, l.Decision, e = engine.decide(ctx, n, settings, update, protected)
 		if e != nil {
-			return e
+			return store.Log{}, e
 		}
-		l.Decision = rules.Decide(l.Risk, l.AI, settings, count, protected)
 	}
 	if kind == "black" && !protected {
 		l.Decision = domain.Decision{Action: "ban", Delete: settings.AutoDelete, Reason: "blacklist"}
 	}
 	l, e = s.Store.SaveLog(ctx, l)
 	if e != nil {
-		return e
+		return store.Log{}, e
 	}
-	return s.applyModeration(ctx, m, l)
+	return l, s.applyModeration(ctx, m, l)
 }
 func (s *Service) applyModeration(ctx context.Context, m domain.Message, l store.Log) error {
 	if l.Decision.Action != "allow" && l.Decision.Action != "shadow_log" {
@@ -123,18 +112,23 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 	if p.Status == "failed" {
 		return fmt.Errorf("处罚已终止，请修复权限后重新发起操作")
 	}
+	mayHaveActed := p.Acted || p.Deleted || p.Started
+	stage := "preflight"
 
 	defer func() {
 		if err != nil {
 			auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 			defer cancel()
 			var te *telegram.APIError
-			if errors.As(err, &te) && (te.Code == 400 || te.Code == 403) {
-				if e := s.Store.FailPunishment(auditCtx, l.EventKey); e != nil {
+			if stage == "action" && !mayHaveActed && errors.As(err, &te) && (te.Code == 400 || te.Code == 403) {
+				if e := s.Store.RejectPunishment(auditCtx, l.EventKey); e != nil {
 					slog.Error("punishment termination failed", "event_key", l.EventKey, "error", e)
 				}
 			}
-			if e := s.Store.PunishmentError(auditCtx, l.EventKey, err); e != nil {
+			if e := s.Store.RetryPunishment(auditCtx, l.EventKey); e != nil {
+				slog.Error("punishment retry scheduling failed", "event_key", l.EventKey, "error", e)
+			}
+			if e := s.Store.PunishmentError(auditCtx, l.EventKey, fmt.Errorf("%s: %w", stage, err)); e != nil {
 				slog.Error("punishment error audit failed", "error", e)
 			}
 		}
@@ -163,6 +157,7 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 		}
 	}
 	d := p.Decision
+	stage = "action"
 	if d.Delete && !p.Deleted && l.MessageID > 0 {
 		if e = s.executor().Delete(ctx, l.ChatID, l.MessageID); e != nil {
 			return e
@@ -170,19 +165,36 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 		if e = s.Store.PunishmentStep(ctx, l.EventKey, "deleted"); e != nil {
 			return e
 		}
+		mayHaveActed = true
 	}
 	if !p.Acted {
+		if d.Action == "mute" && d.Reason != "local_ad_review" && !p.Started && time.Until(p.CreatedAt.Add(time.Duration(d.Duration)*time.Second)) <= 0 {
+			if e = s.Store.FailPunishment(ctx, l.EventKey); e != nil {
+				return e
+			}
+			return fmt.Errorf("禁言计划已过期，请重新操作")
+		}
+		if d.Action == "mute" || d.Action == "ban" || d.Action == "kick" || d.Action == "unmute" || d.Action == "unban" {
+			var until time.Time
+			if d.Action == "mute" && d.Reason != "local_ad_review" {
+				until = p.CreatedAt.Add(time.Duration(d.Duration) * time.Second)
+			}
+			if e = s.Store.StartPermission(ctx, l, until); e != nil {
+				return e
+			}
+		}
 		switch d.Action {
 		case "delete":
 			if !d.Delete && l.MessageID > 0 {
 				e = s.executor().Delete(ctx, l.ChatID, l.MessageID)
 			}
 		case "warn":
+			stage = "notification"
 			settings, se := s.Store.Settings(ctx, l.ChatID)
 			if se != nil {
 				return se
 			}
-			count, ce := s.Store.ViolationCount(ctx, l.ChatID, l.UserID)
+			count, ce := s.Store.ViolationCount(ctx, l.ChatID, l.UserID, l.EventKey)
 			if ce != nil {
 				return ce
 			}
@@ -195,7 +207,7 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 			}
 			seconds := int(time.Until(p.CreatedAt.Add(time.Duration(d.Duration) * time.Second)).Seconds())
 			if seconds > 0 {
-				e = s.executor().Restrict(ctx, l.ChatID, l.UserID, max(30, seconds))
+				e = s.executor().Restrict(ctx, l.ChatID, l.UserID, seconds)
 			} else {
 				if e = s.Store.FailPunishment(ctx, l.EventKey); e != nil {
 					return e
@@ -205,7 +217,20 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 		case "ban":
 			e = s.executor().Ban(ctx, l.ChatID, l.UserID)
 		case "kick":
-			e = s.executor().Kick(ctx, l.ChatID, l.UserID)
+			// A kick has two independently recoverable effects.
+			var banned bool
+			banned, e = s.Store.KickBanned(ctx, l.EventKey)
+			if e == nil && !banned {
+				e = s.executor().Ban(ctx, l.ChatID, l.UserID)
+				if e == nil {
+					mayHaveActed = true
+					e = s.Store.MarkKickBanned(ctx, l.EventKey)
+				}
+			}
+			if e == nil {
+				mayHaveActed = true
+				e = s.executor().Unban(ctx, l.ChatID, l.UserID)
+			}
 		case "unmute":
 			e = s.executor().Restore(ctx, l.ChatID, l.UserID)
 		case "unban":
@@ -216,7 +241,8 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 		if e != nil {
 			return e
 		}
-		if d.Action == "mute" || d.Action == "ban" || d.Action == "kick" || d.Action == "unmute" {
+		mayHaveActed = true
+		if d.Action == "mute" || d.Action == "ban" || d.Action == "kick" || d.Action == "unmute" || d.Action == "unban" {
 			e = s.Store.CompleteTakeover(ctx, l)
 		} else {
 			e = s.Store.PunishmentStep(ctx, l.EventKey, "acted")
@@ -225,6 +251,7 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 			return e
 		}
 	}
+	stage = "notification"
 	if d.Reason == "local_ad_review" {
 		resolved, e := s.Store.NewerManualResolution(ctx, l.ChatID, l.UserID, p.CreatedAt)
 		if e != nil {

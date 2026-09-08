@@ -51,10 +51,16 @@ echo '正在下载程序并启动服务，首次拉取镜像可能需要几分�
 docker compose --env-file .env up -d --build --wait --wait-timeout 300
 fi
 # A short-lived ticket avoids displaying the permanent administrator credential.
-response=$(printf 'header = "Authorization: Bearer %s"\n' "$ADMIN_API_TOKEN" | curl --config - --fail --silent --show-error --max-time 15 -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8080/api/v1/panel-ticket)
+if ! response=$(printf 'header = "Authorization: Bearer %s"\n' "$ADMIN_API_TOKEN" | curl --config - --fail --silent --show-error --max-time 15 -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8080/api/v1/panel-ticket); then
+  echo '服务已启动；暂时无法获取登录链接。稍后在管理菜单重新获取即可，服务无需回退。' >&2
+  exit 0
+fi
 if [[ "$response" =~ \"ticket\":\"([A-Za-z0-9_-]+)\" ]]; then
     ticket=${BASH_REMATCH[1]}
-  if [[ "$(read_setting PANEL_BIND)" == 0.0.0.0 ]]; then
+  domain=$(read_setting PANEL_DOMAIN)
+  if [[ -n "$domain" ]]; then
+    echo "部署完成。后台地址：https://$domain/#ticket=$ticket"
+  elif [[ "$(read_setting PANEL_BIND)" == 0.0.0.0 ]]; then
     host=$(read_setting PANEL_HOST)
     echo "部署完成。后台地址：http://${host:-服务器公网IP}:8080/#ticket=$ticket"
     echo '请在自己电脑的浏览器打开；未配置 PANEL_HOST 时，把“服务器公网IP”替换为实际 IP。'
@@ -66,7 +72,7 @@ if [[ "$response" =~ \"ticket\":\"([A-Za-z0-9_-]+)\" ]]; then
   echo '一次性登录链接有效期 1 分钟；过期后使用 .env 中的 ADMIN_API_TOKEN 登录。'
 else
   echo '服务已启动，但未能取得登录票据。可使用 .env 中的 ADMIN_API_TOKEN 登录后台。' >&2
-  exit 1
+  exit 0
 fi
 
 echo '在后台设置机器人管理员、批准群组；AI 接口按需填写。'

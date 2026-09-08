@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"tgguard/internal/patterns"
 	"unicode"
 	"unicode/utf16"
 
@@ -194,7 +195,7 @@ func evaluatePart(n domain.Normalized, s domain.Settings) domain.Risk {
 		case "exact":
 			matched = Clean(rule.Pattern) != "" && n.Text == Clean(rule.Pattern)
 		case "regex":
-			re, e := regexp.Compile("(?i)" + rule.Pattern)
+			re, e := patterns.Compile("(?i)" + rule.Pattern)
 			matched = e == nil && re.MatchString(n.Text)
 		}
 		if matched {
@@ -278,7 +279,7 @@ func KeywordMatch(k domain.Keyword, text string) bool {
 		return false
 	}
 	if k.MatchType == "regex" {
-		r, e := regexp.Compile(k.Keyword)
+		r, e := patterns.Compile(k.Keyword)
 		return e == nil && r.MatchString(text)
 	}
 	text = Clean(text)

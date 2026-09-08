@@ -51,7 +51,12 @@ func (s *Store) RecoveryHealth(ctx context.Context) (map[string]any, error) {
 		return nil, err
 	}
 	err = s.DB.QueryRowContext(ctx, "SELECT (SELECT COALESCE(MAX(GREATEST(0,TIMESTAMPDIFF(SECOND,next_attempt_at,UTC_TIMESTAMP()))),0) FROM welcome_cleanup WHERE done=FALSE),(SELECT COUNT(*) FROM welcome_cleanup WHERE done=TRUE AND last_error<>'')").Scan(&welcomeDelay, &failed)
-	return map[string]any{"verification_due_delay_seconds": verificationDelay, "welcome_due_delay_seconds": welcomeDelay, "welcome_failed": failed}, err
+	if err != nil {
+		return nil, err
+	}
+	var pending, exhausted, oldest int64
+	err = s.DB.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(w.attempts>=20),0),COALESCE(MAX(GREATEST(0,TIMESTAMPDIFF(SECOND,w.next_attempt_at,UTC_TIMESTAMP()))),0) FROM punishment_workflows w JOIN punishments p ON p.event_key=w.event_key WHERE p.status='pending'`).Scan(&pending, &exhausted, &oldest)
+	return map[string]any{"verification_due_delay_seconds": verificationDelay, "welcome_due_delay_seconds": welcomeDelay, "welcome_failed": failed, "punishment_pending": pending, "punishment_manual_attention": exhausted, "punishment_due_delay_seconds": oldest}, err
 }
 
 // Each index check is restart-safe even if a previous startup stopped midway through DDL.
@@ -76,6 +81,8 @@ func ensureMaintenanceIndexes(ctx context.Context, c *sql.Conn) error {
 		{"verification_sessions", "idx_verification_notice_due", "notice_done,status,next_attempt_at"},
 		{"welcome_cleanup", "idx_welcome_error", "done,last_error"},
 		{"punishments", "idx_punishments_pending", "status,updated_at"},
+		{"moderation_logs", "idx_moderation_member", "chat_id,user_id,id"},
+		{"verification_sessions", "idx_verification_chat_time", "chat_id,created_at"},
 	} {
 		var count int
 		if e := c.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name=? AND index_name=?", spec.table, spec.name).Scan(&count); e != nil {

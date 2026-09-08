@@ -2,7 +2,8 @@ package domain
 
 import (
 	"fmt"
-	"regexp"
+	"tgguard/internal/patterns"
+
 	"strings"
 )
 
@@ -34,7 +35,7 @@ func (s Settings) validateLocalSettings() error {
 			return fmt.Errorf("第 %d 条广告规则格式无效", i+1)
 		}
 		if r.Mode == "regex" {
-			if _, e := regexp.Compile("(?i)" + r.Pattern); e != nil {
+			if _, e := patterns.Compile("(?i)" + r.Pattern); e != nil {
 				return fmt.Errorf("第 %d 条正则表达式无效：%v", i+1, e)
 			}
 		}

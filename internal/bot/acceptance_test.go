@@ -94,7 +94,7 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": 500, "description": "temporary notice failure"})
 			return
 		}
-		if restrictionFailure != 0 && method == "restrictChatMember" && fmt.Sprint(in["user_id"]) == "901998" {
+		if restrictionFailure != 0 && method == "restrictChatMember" && (fmt.Sprint(in["user_id"]) == "901998" || fmt.Sprint(in["user_id"]) == "901988") {
 			json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": restrictionFailure, "description": "simulated restriction failure"})
 			return
 		}
@@ -1560,6 +1560,9 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		mu.Lock()
 		restrictionFailure = 0
 		mu.Unlock()
+		if _, e := db.DB.ExecContext(ctx, "UPDATE punishment_workflows SET next_attempt_at=UTC_TIMESTAMP(6) WHERE event_key=?", l.EventKey); e != nil {
+			t.Fatal(e)
+		}
 		if e := svc.SweepTakeovers(ctx); e != nil {
 			t.Fatal(e)
 		}
@@ -1605,7 +1608,7 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		var issued map[string]any
 		json.Unmarshal(w.Body.Bytes(), &issued)
 		token := issued["token"].(string)
-		w = call("POST", "/auth/login", store.JSON(map[string]string{"token": token}), nil, "", false)
+		w = call("POST", "/auth/login", testJSON(map[string]string{"token": token}), nil, "", false)
 		if w.Code != 200 {
 			t.Fatal(w.Code, w.Body.String())
 		}
@@ -1614,7 +1617,7 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		json.Unmarshal(w.Body.Bytes(), &session)
 		c := manager.Snapshot()
 		c.PanelURL = "https://panel.example.com"
-		w = call("PUT", "/api/v1/system", store.JSON(c), cookie, session["csrf"], false)
+		w = call("PUT", "/api/v1/system", testJSON(c), cookie, session["csrf"], false)
 		if w.Code != 200 {
 			t.Fatal(w.Code, w.Body.String())
 		}
@@ -1622,8 +1625,9 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		if e := db.DB.QueryRowContext(ctx, "SELECT actor_id FROM admin_audits WHERE action='system.settings' ORDER BY id DESC LIMIT 1").Scan(&actor); e != nil || actor != 42 {
 			t.Fatal("missing named actor", actor, e)
 		}
+		c = manager.Snapshot()
 		c.SuperAdmins = []int64{}
-		w = call("PUT", "/api/v1/system", store.JSON(c), nil, "", true)
+		w = call("PUT", "/api/v1/system", testJSON(c), nil, "", true)
 		if w.Code != 200 {
 			t.Fatal(w.Code, w.Body.String())
 		}
@@ -1631,13 +1635,189 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		if w.Code != 401 {
 			t.Fatal("removed admin session remains active", w.Code)
 		}
+		c = manager.Snapshot()
 		c.SuperAdmins = []int64{42}
 		if e = manager.Save(ctx, c, false); e != nil {
 			t.Fatal(e)
 		}
-		w = call("POST", "/auth/login", store.JSON(map[string]string{"token": token}), nil, "", false)
+		w = call("POST", "/auth/login", testJSON(map[string]string{"token": token}), nil, "", false)
 		if w.Code != 401 {
 			t.Fatal("old credential resurrected", w.Code)
+		}
+	})
+	t.Run("revocation cannot erase permission recovery", func(t *testing.T) {
+		chat := domain.Chat{ID: -190997, Type: "supergroup", Title: "撤权恢复测试"}
+		if e := db.RegisterGroup(ctx, chat); e != nil {
+			t.Fatal(e)
+		}
+		const uid int64 = 901997
+		if e := db.AuthorizeGroup(ctx, chat.ID, 42, "approved", "test"); e != nil {
+			t.Fatal(e)
+		}
+		if e := db.ChangeSettings(ctx, chat.ID, 42, func(s *domain.Settings) error { s.VerificationEnabled = true; return nil }); e != nil {
+			t.Fatal(e)
+		}
+		if e := svc.Join(ctx, chat, domain.User{ID: uid}); e != nil {
+			t.Fatal(e)
+		}
+		v, e := db.ActiveVerification(ctx, chat.ID, uid)
+		if e != nil {
+			t.Fatal(e)
+		}
+		svc.Executor = revokingExecutor{MemberExecutor: svc.Bot, revoke: func() error { return db.AuthorizeGroup(ctx, chat.ID, 42, "revoked", "concurrent test") }}
+		defer func() { svc.Executor = nil; _ = db.AuthorizeGroup(ctx, chat.ID, 42, "approved", "test cleanup") }()
+		l := store.Log{EventKey: "revoke-race-regression", ChatID: chat.ID, UserID: uid, Source: "manual", Decision: domain.Decision{Action: "mute", Duration: 3600}}
+		if e = svc.Punish(ctx, l, 42); e != store.ErrAuthorityChanged {
+			t.Fatal("missing cancellation", e)
+		}
+		v, e = db.Verification(ctx, v.Token)
+		if e != nil || v.Status != "releasing" {
+			t.Fatal("release intent lost", v, e)
+		}
+		var status string
+		if e = db.DB.QueryRowContext(ctx, "SELECT status FROM punishments WHERE event_key=?", l.EventKey).Scan(&status); e != nil || status != "skipped" {
+			t.Fatal(status, e)
+		}
+		before := count("restrictChatMember")
+		if e = svc.SweepTakeovers(ctx); e != nil {
+			t.Fatal(e)
+		}
+		if count("restrictChatMember") <= before {
+			t.Fatal("missing compensation")
+		}
+	})
+	t.Run("legacy username trust is inert", func(t *testing.T) {
+		l := domain.ListEntry{ChatID: chat.ID, Username: "auditsharedname", Kind: "white"}
+		if e := db.SaveList(ctx, l, 42, false); e == nil {
+			t.Fatal("username-only trust accepted")
+		}
+		if _, e := db.DB.ExecContext(ctx, "INSERT INTO list_entries(chat_id,user_id,username,kind,reason,created_by) VALUES(?,0,?,'white','legacy',42)", chat.ID, l.Username); e != nil {
+			t.Fatal(e)
+		}
+		for _, id := range []int64{901995, 901996} {
+			kind, e := db.ListStatus(ctx, chat.ID, id, l.Username)
+			if e != nil || kind != "" {
+				t.Fatal("inherited trust", kind, e)
+			}
+		}
+		if e := db.SaveList(ctx, l, 42, true); e != nil {
+			t.Fatal("cannot delete legacy entry", e)
+		}
+	})
+	t.Run("finite mute has durable release", func(t *testing.T) {
+		chat := domain.Chat{ID: -190993, Type: "supergroup", Title: "到期恢复测试"}
+		if e := db.RegisterGroup(ctx, chat); e != nil {
+			t.Fatal(e)
+		}
+		if e := db.AuthorizeGroup(ctx, chat.ID, 42, "approved", "test"); e != nil {
+			t.Fatal(e)
+		}
+		l := store.Log{EventKey: "short-mute-regression", ChatID: chat.ID, UserID: 901993, Source: "manual", Decision: domain.Decision{Action: "mute", Duration: 30}}
+		if e := svc.Punish(ctx, l, 42); e != nil {
+			t.Fatal(e)
+		}
+		var needed bool
+		if e := db.DB.QueryRowContext(ctx, "SELECT release_needed FROM punishment_workflows WHERE event_key=?", l.EventKey).Scan(&needed); e != nil || !needed {
+			t.Fatal("no expiry task", e)
+		}
+		if _, e := db.DB.ExecContext(ctx, "UPDATE punishment_workflows SET release_at=UTC_TIMESTAMP(6) WHERE event_key=?", l.EventKey); e != nil {
+			t.Fatal(e)
+		}
+		before := count("restrictChatMember")
+		if e := svc.SweepTakeovers(ctx); e != nil {
+			t.Fatal(e)
+		}
+		if count("restrictChatMember") <= before {
+			t.Fatal("expiry did not restore permissions")
+		}
+		if e := db.DB.QueryRowContext(ctx, "SELECT release_needed FROM punishment_workflows WHERE event_key=?", l.EventKey).Scan(&needed); e != nil || needed {
+			t.Fatal("expiry not committed", e)
+		}
+	})
+	t.Run("old expiry preserves a newer verification", func(t *testing.T) {
+		l := store.Log{EventKey: "expiry-before-new-verification", ChatID: chat.ID, UserID: 901989, Source: "manual", Decision: domain.Decision{Action: "mute", Duration: 30}}
+		if e := svc.Punish(ctx, l, 42); e != nil {
+			t.Fatal(e)
+		}
+		v := store.Verification{Token: "new-verification-after-mute", ChatID: chat.ID, UserID: l.UserID, Type: "button", FailAction: "kick", ExpiresAt: time.Now().Add(time.Minute)}
+		if e := db.CreateVerification(ctx, v); e != nil {
+			t.Fatal(e)
+		}
+		if _, e := db.DB.ExecContext(ctx, "UPDATE punishment_workflows SET release_at=UTC_TIMESTAMP(6) WHERE event_key=?", l.EventKey); e != nil {
+			t.Fatal(e)
+		}
+		before := count("restrictChatMember")
+		if e := svc.SweepTakeovers(ctx); e != nil {
+			t.Fatal(e)
+		}
+		if count("restrictChatMember") != before {
+			t.Fatal("old expiry unmuted newer verification")
+		}
+		var status string
+		if e := db.DB.QueryRowContext(ctx, "SELECT status FROM verification_sessions WHERE token=?", v.Token).Scan(&status); e != nil || status != "pending" {
+			t.Fatal(status, e)
+		}
+	})
+	t.Run("definite mute rejection clears release intent", func(t *testing.T) {
+		mu.Lock()
+		restrictionFailure = 403
+		mu.Unlock()
+		defer func() { mu.Lock(); restrictionFailure = 0; mu.Unlock() }()
+		l := store.Log{EventKey: "rejected-finite-mute", ChatID: chat.ID, UserID: 901988, Source: "manual", Decision: domain.Decision{Action: "mute", Duration: 30}}
+		if e := svc.Punish(ctx, l, 42); e == nil {
+			t.Fatal("expected rejection")
+		}
+		var needed bool
+		var status string
+		if e := db.DB.QueryRowContext(ctx, "SELECT p.status,w.release_needed FROM punishments p JOIN punishment_workflows w ON w.event_key=p.event_key WHERE p.event_key=?", l.EventKey).Scan(&status, &needed); e != nil || status != "failed" || needed {
+			t.Fatal(status, needed, e)
+		}
+	})
+	t.Run("kick resumes unban without repeating ban", func(t *testing.T) {
+		x := &partialKickExecutor{MemberExecutor: svc.Bot, fail: true}
+		svc.Executor = x
+		defer func() { svc.Executor = nil }()
+		l := store.Log{EventKey: "partial-kick-regression", ChatID: chat.ID, UserID: 901992, Source: "manual", Decision: domain.Decision{Action: "kick"}}
+		if e := svc.Punish(ctx, l, 42); e == nil {
+			t.Fatal("missing simulated failure")
+		}
+		p, e := db.PreparePunishment(ctx, l, 42)
+		if e != nil || p.Status != "pending" {
+			t.Fatal("partial kick became terminal", p, e)
+		}
+		if e = svc.Punish(ctx, l, 42); e != nil {
+			t.Fatal(e)
+		}
+		if x.bans != 1 {
+			t.Fatal("ban repeated", x.bans)
+		}
+	})
+	t.Run("recovery batch reserves space for different groups", func(t *testing.T) {
+		for i := 0; i < 105; i++ {
+			l := store.Log{EventKey: fmt.Sprintf("fairness:%d", i), ChatID: -190991, UserID: int64(88000 + i), Source: "automatic", Decision: domain.Decision{Action: "warn"}}
+			if i == 104 {
+				l.ChatID = -190990
+			}
+			if _, e := db.PreparePunishment(ctx, l, 0); e != nil {
+				t.Fatal(e)
+			}
+		}
+		rows, e := db.PendingTakeovers(ctx)
+		if e != nil {
+			t.Fatal(e)
+		}
+		slow := 0
+		fast := false
+		for _, r := range rows {
+			if r.Log.ChatID == -190991 {
+				slow++
+			}
+			if r.Log.ChatID == -190990 {
+				fast = true
+			}
+		}
+		if slow > 2 || !fast {
+			t.Fatal("batch starvation", slow, fast)
 		}
 	})
 	t.Run("expired menu and revoked permission", func(t *testing.T) {
@@ -1667,4 +1847,42 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			t.Fatal("revoked admin changed settings")
 		}
 	})
+}
+
+func testJSON(v any) string {
+	b, e := json.Marshal(v)
+	if e != nil {
+		panic(e)
+	}
+	return string(b)
+}
+
+type revokingExecutor struct {
+	service.MemberExecutor
+	revoke func() error
+}
+
+func (x revokingExecutor) Restrict(ctx context.Context, chat, user int64, seconds int) error {
+	if err := x.revoke(); err != nil {
+		return err
+	}
+	return x.MemberExecutor.Restrict(ctx, chat, user, seconds)
+}
+
+type partialKickExecutor struct {
+	service.MemberExecutor
+	fail bool
+	bans int
+}
+
+func (x *partialKickExecutor) Ban(ctx context.Context, chat, user int64) error {
+	x.bans++
+	return x.MemberExecutor.Ban(ctx, chat, user)
+}
+func (x *partialKickExecutor) Unban(ctx context.Context, chat, user int64) error {
+	if x.fail {
+		x.fail = false
+		return &telegram.APIError{Code: 403, Description: "simulated temporary permission loss"}
+	}
+	return x.MemberExecutor.Unban(ctx, chat, user)
 }

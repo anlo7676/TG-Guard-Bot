@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -59,7 +60,9 @@ func (s *State) Lock(ctx context.Context, key string, ttl time.Duration) (func()
 	return func() {
 		c, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		s.R.Eval(c, `if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0`, []string{key}, token)
+		if err := s.R.Eval(c, `if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0`, []string{key}, token).Err(); err != nil {
+			slog.Warn("Redis unlock failed", "lock_key", key, "error", err)
+		}
 	}, nil
 }
 

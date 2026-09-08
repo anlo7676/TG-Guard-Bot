@@ -32,10 +32,6 @@ func New(token string, s *state.State) *Client {
 	return &Client{BaseURL: "https://api.telegram.org/bot" + token, HTTP: &http.Client{Timeout: 40 * time.Second, CheckRedirect: func(r *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }}, State: s}
 }
 func (c *Client) Call(ctx context.Context, method string, in, out any) error {
-	b, e := json.Marshal(in)
-	if e != nil {
-		return e
-	}
 	for attempt := 0; attempt < 3; attempt++ {
 		if c.State != nil {
 			if strings.HasPrefix(method, "send") {
@@ -66,6 +62,25 @@ func (c *Client) Call(ctx context.Context, method string, in, out any) error {
 					return e
 				}
 			}
+		}
+		payload := in
+		if args, ok := in.(map[string]any); ok && method == "restrictChatMember" {
+			if deadline, ok := args["until_date"].(int64); ok {
+				if deadline <= time.Now().Unix() {
+					return errors.New("restriction deadline elapsed before send")
+				}
+				copy := make(map[string]any, len(args))
+				for k, v := range args {
+					copy[k] = v
+				}
+				// A persisted service release task preserves the requested short duration.
+				copy["until_date"] = max(deadline, time.Now().Add(2*time.Minute).Unix())
+				payload = copy
+			}
+		}
+		b, e := json.Marshal(payload)
+		if e != nil {
+			return e
 		}
 		req, e := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/"+method, bytes.NewReader(b))
 		if e != nil {

@@ -19,12 +19,16 @@ func (s *Store) SaveSystemSettings(ctx context.Context, value string, before, af
 	var public struct {
 		Admins []int64 `json:"super_admins"`
 	}
-	if e = json.Unmarshal([]byte(JSON(after)), &public); e != nil {
+	encoded, e := json.Marshal(after)
+	if e != nil {
+		return e
+	}
+	if e = json.Unmarshal(encoded, &public); e != nil {
 		return e
 	}
 	// Removing an administrator also destroys their credential in the same commit;
 	// adding the ID again cannot resurrect an old credential or session.
-	if _, e = tx.ExecContext(ctx, "DELETE FROM web_credentials WHERE user_id NOT IN (SELECT id FROM JSON_TABLE(?, '$[*]' COLUMNS(id BIGINT PATH '$')) ids)", JSON(public.Admins)); e != nil {
+	if _, e = tx.ExecContext(ctx, "DELETE FROM web_credentials WHERE user_id NOT IN (SELECT id FROM JSON_TABLE(?, '$[*]' COLUMNS(id BIGINT PATH '$')) ids)", SQLJSON(public.Admins)); e != nil {
 		return e
 	}
 	if _, e = tx.ExecContext(ctx, "INSERT INTO system_settings(id,value_encrypted) VALUES(1,?) ON DUPLICATE KEY UPDATE value_encrypted=VALUES(value_encrypted)", value); e != nil {
