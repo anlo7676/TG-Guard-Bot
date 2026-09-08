@@ -50,7 +50,8 @@ if [[ "$mode" != --panel-only ]]; then
 [[ ! -L .updates ]] || { echo '升级任务目录不能是符号链接，请检查 .updates。'; exit 1; }
 if [[ ! -d .updates ]]; then mkdir .updates; fi
 if [[ "$(id -u)" == 0 ]]; then chown 10001:10001 .updates; chmod 750 .updates; fi
-echo '正在下载程序并启动服务，首次拉取镜像可能需要几分钟……'
+echo '正在准备运行镜像并下载已编译程序，不会在服务器编译 Go。下方将显示完整步骤……'
+export BUILDKIT_PROGRESS=plain
 docker compose --env-file .env up -d --build --wait --wait-timeout 300
 if [[ "${TG_WEB_UPDATE_JOB:-}" != 1 && "$(id -u)" == 0 ]] && command -v systemctl >/dev/null && [[ -d /run/systemd/system && -f scripts/setup-updater.sh ]]; then
   bash scripts/setup-updater.sh || echo '服务已启动；网页升级尚未启用，可稍后在管理菜单启用。'
