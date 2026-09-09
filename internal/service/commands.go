@@ -235,7 +235,10 @@ func (s *Service) Command(ctx context.Context, update int64, m domain.Message, c
 		return s.Say(ctx, m.Chat.ID, lang, "unknown_command")
 	}
 	if command == "ban" {
-		return s.text(ctx, m.Chat.ID, "封禁操作已完成，已请求 Telegram 同时清理该用户在本群的全部发言。")
+		if m.Reply != nil && m.Reply.From != nil && m.Reply.SenderChat == nil && m.Reply.ID > 0 {
+			return s.text(ctx, m.Chat.ID, "封禁已完成，所回复的原消息已删除。已另行请求 Telegram 清理该用户的历史发言。")
+		}
+		return s.text(ctx, m.Chat.ID, "封禁已完成，已请求 Telegram 清理该用户的历史发言；历史消息清理结果未逐条核验。")
 	}
 	return s.Say(ctx, m.Chat.ID, lang, "done")
 }

@@ -113,6 +113,9 @@ func (s *Service) Punish(ctx context.Context, l store.Log, actor int64) (err err
 // punishLocked shares the punishment workflow with verification while holding the member lock.
 func (s *Service) punishLocked(ctx context.Context, l store.Log, actor int64) (err error) {
 	loggedDecision := l.Decision
+	if l.Decision.Action == "ban" && l.MessageID > 0 {
+		l.Decision.Delete = true
+	}
 	if (l.Source == "automatic" || l.Source == "review") && l.Decision.Delete && l.Decision.Action != "ban" {
 		already, err := s.Store.MessageAlreadyPunished(ctx, l)
 		if err != nil || already {
@@ -189,7 +192,7 @@ func (s *Service) punishLocked(ctx context.Context, l store.Log, actor int64) (e
 	}
 	d := p.Decision
 	stage = "action"
-	if d.Delete && !p.Deleted && l.MessageID > 0 {
+	if d.Delete && d.Action != "ban" && !p.Deleted && l.MessageID > 0 {
 		if e = s.executor().Delete(ctx, l.ChatID, l.MessageID); e != nil {
 			return e
 		}
@@ -283,6 +286,17 @@ func (s *Service) punishLocked(ctx context.Context, l store.Log, actor int64) (e
 			e = s.Store.PunishmentStep(ctx, l.EventKey, "acted")
 		}
 		if e != nil {
+			return e
+		}
+	}
+	// Ban first, then explicitly delete the known target. Telegram's history
+	// revocation request alone is not an acknowledgement for this message.
+	if d.Action == "ban" && l.MessageID > 0 && !p.Deleted {
+		stage = "action"
+		if e = s.executor().Delete(ctx, l.ChatID, l.MessageID); e != nil {
+			return e
+		}
+		if e = s.Store.PunishmentStep(ctx, l.EventKey, "deleted"); e != nil {
 			return e
 		}
 	}

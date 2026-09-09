@@ -181,6 +181,37 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		return n
 	}
 
+	t.Run("ban explicitly deletes target and retries cleanup without banning again", func(t *testing.T) {
+		l := store.Log{EventKey: "ban-cleanup-retry", ChatID: chat.ID, UserID: 838626, MessageID: 7683, Source: "manual", Decision: domain.Decision{Action: "ban", Reason: "administrator_command"}}
+		bans, deletes := count("banChatMember"), count("deleteMessage")
+		mu.Lock()
+		failVerificationNotice = "delete"
+		mu.Unlock()
+		if e := svc.Punish(ctx, l, 42); e == nil {
+			t.Fatal("cleanup failure must be reported")
+		}
+		p, e := db.PreparePunishment(ctx, l, 42)
+		if e != nil || !p.Acted || p.Deleted || p.Status != "pending" || !p.Decision.Delete {
+			t.Fatalf("lost cleanup checkpoint: %+v %v", p, e)
+		}
+		if e := svc.Punish(ctx, l, 42); e != nil {
+			t.Fatal(e)
+		}
+		p, e = db.PreparePunishment(ctx, l, 42)
+		if e != nil || !p.Acted || !p.Deleted || p.Status != "done" {
+			t.Fatalf("cleanup not completed: %+v %v", p, e)
+		}
+		if count("banChatMember") != bans+1 || count("deleteMessage") != deletes+2 {
+			t.Fatal("ban repeated or target cleanup missing")
+		}
+		if e := svc.Punish(ctx, l, 42); e != nil {
+			t.Fatal(e)
+		}
+		if count("deleteMessage") != deletes+2 {
+			t.Fatal("completed cleanup repeated")
+		}
+	})
+
 	t.Run("group authorization gates and safe verification cancellation", func(t *testing.T) {
 		g := domain.Chat{ID: -1003, Type: "supergroup", Title: "Pending group"}
 		if e := svc.Group(ctx, g); e != nil {
