@@ -101,10 +101,16 @@ func (s *Store) Migrate(ctx context.Context) error {
 }
 
 func (s *Store) RegisterGroup(ctx context.Context, c domain.Chat) error {
+	if c.Type != "supergroup" || c.ID >= 0 {
+		return nil
+	}
 	_, e := s.DB.ExecContext(ctx, "INSERT INTO bot_groups(chat_id,title) VALUES(?,?) ON DUPLICATE KEY UPDATE title=VALUES(title),active=TRUE", c.ID, c.Title)
 	return e
 }
 func (s *Store) DeactivateGroup(ctx context.Context, chat int64) error {
+	if chat >= 0 {
+		return nil
+	}
 	return s.changeAuthorization(ctx, chat, 0, "revoked", "机器人已离群，需要重新审批", true)
 }
 func (s *Store) VerifiedCurrentJoin(ctx context.Context, chat, user int64) (bool, error) {

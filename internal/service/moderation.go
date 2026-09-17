@@ -267,7 +267,7 @@ func (s *Service) punishLocked(ctx context.Context, l store.Log, actor int64) (e
 			}
 			if e == nil {
 				mayHaveActed = true
-				e = s.executor().Unban(ctx, l.ChatID, l.UserID)
+				e = s.releaseKick(ctx, l.ChatID, l.UserID)
 			}
 		case "unmute":
 			e = s.executor().Restore(ctx, l.ChatID, l.UserID)

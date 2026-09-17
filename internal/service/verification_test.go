@@ -30,12 +30,14 @@ func TestExpiredVerificationOnlyUnbansOwnedKick(t *testing.T) {
 			cache := state.New(r.Addr(), "")
 			defer cache.R.Close()
 			unbans := 0
+			memberStatus := "kicked"
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
 				case "/getChatMember":
-					json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{"status": "kicked", "user": map[string]any{"id": 42}}})
+					json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{"status": memberStatus, "user": map[string]any{"id": 42}}})
 				case "/unbanChatMember":
 					unbans++
+					memberStatus = "left"
 					w.Write([]byte(`{"ok":true,"result":true}`))
 				default:
 					t.Errorf("unexpected Telegram method %s", r.URL.Path)
@@ -64,6 +66,39 @@ func TestExpiredVerificationOnlyUnbansOwnedKick(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestReleaseKickRequiresObservableUnban(t *testing.T) {
+	status := "kicked"
+	releaseVisible := false
+	unbans := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/unbanChatMember":
+			unbans++
+			if releaseVisible {
+				status = "left"
+			}
+			w.Write([]byte(`{"ok":true,"result":true}`))
+		case "/getChatMember":
+			json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{"status": status, "user": map[string]any{"id": 42}}})
+		default:
+			t.Errorf("unexpected Telegram method %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	bot := &telegram.Client{BaseURL: srv.URL, HTTP: srv.Client()}
+	s := &Service{Bot: bot, Executor: bot}
+	if err := s.releaseKick(context.Background(), -100, 42); err == nil {
+		t.Fatal("unconfirmed kick release completed")
+	}
+	releaseVisible = true
+	if err := s.releaseKick(context.Background(), -100, 42); err != nil {
+		t.Fatal(err)
+	}
+	if unbans != 2 {
+		t.Fatalf("unban attempts=%d", unbans)
 	}
 }
 

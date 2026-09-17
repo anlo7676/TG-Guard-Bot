@@ -105,12 +105,15 @@ func (s *Service) LogChannel(ctx context.Context, chat int64, text string) {
 	}
 }
 func (s *Service) Group(ctx context.Context, c domain.Chat) error {
-	if c.Type != "supergroup" {
+	if c.Type != "supergroup" || c.ID >= 0 {
 		return nil
 	}
 	return s.Store.RegisterGroup(ctx, c)
 }
 func (s *Service) BotMembership(ctx context.Context, u domain.MemberUpdate) error {
+	if u.Chat.Type != "supergroup" || u.Chat.ID >= 0 {
+		return nil
+	}
 	if !u.New.Present() {
 		return s.Store.DeactivateGroup(ctx, u.Chat.ID)
 	}
@@ -122,7 +125,7 @@ func (s *Service) BotMembership(ctx context.Context, u domain.MemberUpdate) erro
 	} else if !ok {
 		return s.AuthorizationNotice(ctx, u.Chat.ID)
 	}
-	if u.Chat.Type != "supergroup" || !u.New.Admin() || !u.New.CanDelete || !u.New.CanRestrict {
+	if !u.New.Admin() || !u.New.CanDelete || !u.New.CanRestrict {
 		return s.Say(ctx, u.Chat.ID, "zh_CN", "bot_permissions")
 	}
 	var admins []domain.Member

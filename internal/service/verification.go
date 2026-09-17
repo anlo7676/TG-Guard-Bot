@@ -275,7 +275,7 @@ func (s *Service) finishVerification(ctx context.Context, v store.Verification) 
 			}
 		}
 		if v.KickStarted && v.FailAction == "kick" {
-			if e = s.executor().Unban(ctx, v.ChatID, v.UserID); e != nil {
+			if e = s.releaseKick(ctx, v.ChatID, v.UserID); e != nil {
 				return e
 			}
 		}
@@ -326,7 +326,7 @@ func (s *Service) finishVerification(ctx context.Context, v store.Verification) 
 					}
 				}
 				if v.KickStarted {
-					if e = s.executor().Unban(ctx, v.ChatID, v.UserID); e != nil {
+					if e = s.releaseKick(ctx, v.ChatID, v.UserID); e != nil {
 						return e
 					}
 				}
