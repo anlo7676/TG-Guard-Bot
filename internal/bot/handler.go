@@ -97,7 +97,7 @@ func (h *Handler) Handle(ctx context.Context, u domain.Update) error {
 	if ok, e := s.Store.GroupAuthorized(ctx, m.Chat.ID); e != nil {
 		return e
 	} else if !ok {
-		if _, _, command := service.ParseCommand(m.Text, s.Bot.Username); command {
+		if command, _, parsed := service.ParseCommand(m.Text, s.Bot.Username); parsed && service.SupportedCommand(command) {
 			return s.AuthorizationNotice(ctx, m.Chat.ID)
 		}
 		return nil

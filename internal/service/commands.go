@@ -27,8 +27,24 @@ func ParseCommand(text, username string) (command, arg string, ok bool) {
 	}
 	return strings.ToLower(name), strings.TrimSpace(tail), true
 }
+
+var supportedCommands = map[string]struct{}{
+	"admins": {}, "ai": {}, "approve": {}, "ban": {}, "blacklist": {},
+	"cancel": {}, "check": {}, "dc": {}, "groups": {}, "help": {}, "id": {},
+	"keywords": {}, "kick": {}, "menu": {}, "mute": {}, "panel": {},
+	"reject": {}, "revoke": {}, "rules": {}, "settings": {}, "start": {},
+	"stats": {}, "unban": {}, "unmute": {}, "verify": {}, "version": {},
+	"warn": {}, "whitelist": {},
+}
+
+func SupportedCommand(command string) bool {
+	_, ok := supportedCommands[strings.ToLower(command)]
+	return ok
+}
+
 func (s *Service) Command(ctx context.Context, update int64, m domain.Message, command, arg string) error {
-	if m.From == nil || command == "help" {
+	command = strings.ToLower(command)
+	if m.From == nil || !SupportedCommand(command) || command == "help" {
 		return nil
 	}
 	if m.Chat.Type == "private" && (command == "approve" || command == "reject" || command == "revoke") {

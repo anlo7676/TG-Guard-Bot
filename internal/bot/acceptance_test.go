@@ -181,6 +181,14 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		return n
 	}
 
+	t.Run("foreign group command is silent after moderation", func(t *testing.T) {
+		sends := count("sendMessage")
+		handle(message("/lucky 1GB", 77))
+		if count("sendMessage") != sends {
+			t.Fatal("foreign command received a bot reply")
+		}
+	})
+
 	t.Run("ban explicitly deletes target and retries cleanup without banning again", func(t *testing.T) {
 		l := store.Log{EventKey: "ban-cleanup-retry", ChatID: chat.ID, UserID: 838626, MessageID: 7683, Source: "manual", Decision: domain.Decision{Action: "ban", Reason: "administrator_command"}}
 		bans, deletes := count("banChatMember"), count("deleteMessage")
@@ -223,6 +231,11 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		before := count("restrictChatMember") + count("banChatMember") + count("deleteMessage")
 		if e := svc.Join(ctx, g, domain.User{ID: 77}); e != nil {
 			t.Fatal(e)
+		}
+		sends := count("sendMessage")
+		handle(domain.Message{ID: 799, Chat: g, From: &domain.User{ID: 77}, Text: "/lucky 1GB"})
+		if count("sendMessage") != sends {
+			t.Fatal("foreign command received authorization guidance")
 		}
 		handle(domain.Message{ID: 800, Chat: g, From: &domain.User{ID: 42}, Text: "/settings"})
 		if !strings.Contains(fmt.Sprint(lastSend()["text"]), "尚未获准") {
