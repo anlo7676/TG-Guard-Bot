@@ -70,7 +70,7 @@ pwsh -File scripts/deploy.ps1
 2. 将机器人加入超级群并设为管理员，授予删除消息和限制成员权限；在 BotFather 关闭 Privacy Mode。
 3. 在网页群组列表批准该群，即可开始使用。
 
-后台只监听本机 `127.0.0.1:8080`。部署到远程服务器时，在自己电脑另开终端运行 `ssh -L 8080:127.0.0.1:8080 用户@服务器`，再打开脚本给出的登录地址。票据失效后可重新执行部署脚本获取，或使用 `.env` 中的 `ADMIN_API_TOKEN` 登录。
+上述 Compose 部署默认只向宿主本机发布 `127.0.0.1:8080`。部署到远程服务器时，在自己电脑另开终端运行 `ssh -L 8080:127.0.0.1:8080 用户@服务器`，再打开脚本给出的登录地址。票据失效后可重新执行部署脚本获取，或使用 `.env` 中的 `ADMIN_API_TOKEN` 登录。
 
 **更新：** `git pull --ff-only` 后再次执行同一部署命令。已有 `.env` 不覆盖、密码不重置、数据卷保留。请备份 `.env` 和数据库；原先手工部署的配置不完整时，脚本会提示缺失字段，不擅自改写。已有本机 Go 进程时，继续使用下面的本机更新方式；不要用同一个 Token 同时启动两个机器人实例。
 
@@ -161,16 +161,18 @@ Go 可执行程序本身只读环境变量；自动读取 `.env` 的入口是 Po
 
 私聊主菜单以「我的群组」为入口，选择群后可修改验证、审核、AI、防刷屏及自动处罚开关，并查看该群统计、规则、关键词和名单。每次读取和写入均检查当前群管理员权限。关键词和名单支持私聊编辑；按钮绑定用户和目标群，30 分钟过期，输入提示 10 分钟过期且可用 `/cancel` 取消。完整配置通过 Web 后台或管理 API 获取，群内 `/settings JSON` 仍支持高级参数。`rules` 对象支持按规则名称覆盖 `enabled`、`score`。全局黑名单优先于普通群白名单；Telegram 管理员和 Bot 超管仍受保护。
 
+私聊菜单每用户每 10 秒最多受理 6 次；菜单发现查询全机器人每秒最多 5 次，查询和展示回复合计每秒最多 8 次。达到上限时停止本次扫描，可稍后使用「继续查找 / 重试」；未检查的群不会被分页跳过。菜单身份显示最多缓存 30 秒，实际管理操作仍实时鉴权。
+
 ## 管理 API
 
-HTTP 根地址默认为 `http://127.0.0.1:8080`。
+Compose 默认可在宿主通过 `http://127.0.0.1:8080` 访问。直接运行二进制时，`HTTP_ADDR` 默认及 `.env.example` 均为 `:8080`（所有网卡）；如需仅本机访问，应显式设置 `HTTP_ADDR=127.0.0.1:8080`。`PANEL_BIND` 仅控制 Compose 的宿主端口发布。
 
 ```powershell
 $headers = @{ Authorization = "Bearer $env:ADMIN_API_TOKEN" }
 Invoke-RestMethod http://127.0.0.1:8080/api/v1/groups -Headers $headers
 ```
 
-API 支持 Bearer Token 和 HttpOnly Cookie 会话，Cookie 写操作需要 CSRF Token。`actor_id=0` 表示后台管理员操作；当前不提供独立多管理员 Web 账号或按群 Web 授权。所有 `/api/v1/` 请求均需鉴权、限流；不启用 CORS，不接受跨 Origin 写入。默认仅本机访问，手机远程使用需部署 HTTPS 反向代理。
+API 支持 Bearer Token 和 HttpOnly Cookie 会话，Cookie 写操作需要 CSRF Token。`actor_id=0` 表示全局恢复凭据操作；支持为 Telegram 机器人管理员签发独立 Web 登录密钥，并按其用户 ID 记录审计。所有 Web 管理员均为全局权限，不提供按群 Web 授权；升级和管理员凭据管理仅限全局恢复凭据身份。所有 `/api/v1/` 请求均需鉴权、限流；不启用 CORS，不接受跨 Origin 写入。手机远程使用应部署 HTTPS 反向代理。
 
 接口和请求示例见 [docs/api.md](docs/api.md)。部署与故障恢复见 [docs/operations.md](docs/operations.md)，架构与后续范围见 [docs/architecture.md](docs/architecture.md)。
 

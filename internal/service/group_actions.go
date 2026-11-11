@@ -25,6 +25,9 @@ func (s *Service) groupAction(ctx context.Context, m domain.Message, chat int64,
 			return true, e
 		}
 		if f.Kind == "text" {
+			if f.Key == "verification_channel_url" {
+				return true, s.promptGroup(ctx, m, chat, "setting", f.Key, "设置频道加入链接，格式：https://t.me/频道用户名 或 https://t.me/+邀请链接。请确保链接对应必加入的频道 ID，并将机器人设为该频道管理员。\n当前："+v.VerificationChannelURL)
+			}
 			return true, s.promptGroup(ctx, m, chat, "setting", f.Key, "设置欢迎语，最多 1000 字。支持 {name} 成员名称、{username} 用户名、{user_id} 用户 ID、{group} 群名、{timeout} 验证秒数。开启验证时，欢迎语在验证通过后发送，并在 5 分钟内自动删除。\n当前："+v.WelcomeText)
 		}
 		if f.Kind == "number" {

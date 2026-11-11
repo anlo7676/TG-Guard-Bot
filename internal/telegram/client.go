@@ -33,6 +33,9 @@ func New(token string, s *state.State) *Client {
 }
 func (c *Client) Call(ctx context.Context, method string, in, out any) error {
 	for attempt := 0; attempt < 3; attempt++ {
+		if err := c.menuBudget(ctx, method); err != nil {
+			return err
+		}
 		if c.State != nil {
 			if strings.HasPrefix(method, "send") {
 				if args, ok := in.(map[string]any); ok {
@@ -43,6 +46,9 @@ func (c *Client) Call(ctx context.Context, method string, in, out any) error {
 						}
 						if allowed {
 							break
+						}
+						if isMenu(ctx) {
+							return ErrMenuLimited
 						}
 						if err = state.Sleep(ctx, 100*time.Millisecond); err != nil {
 							return err
@@ -57,6 +63,9 @@ func (c *Client) Call(ctx context.Context, method string, in, out any) error {
 				}
 				if ok {
 					break
+				}
+				if isMenu(ctx) {
+					return ErrMenuLimited
 				}
 				if e = state.Sleep(ctx, 100*time.Millisecond); e != nil {
 					return e
@@ -109,6 +118,9 @@ func (c *Client) Call(ctx context.Context, method string, in, out any) error {
 			return fmt.Errorf("telegram %s invalid response (HTTP %d)", method, resp.StatusCode)
 		}
 		if envelope.Code == 429 && envelope.Parameters.RetryAfter > 0 && attempt < 2 {
+			if isMenu(ctx) {
+				return ErrMenuLimited
+			}
 			if e = state.Sleep(ctx, time.Duration(envelope.Parameters.RetryAfter)*time.Second); e != nil {
 				return e
 			}

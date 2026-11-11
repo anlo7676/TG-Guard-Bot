@@ -16,9 +16,15 @@ import (
 	"time"
 )
 
-func (s *Service) SelfVerificationMenu(ctx context.Context, m domain.Message, pages ...int64) error {
+func (s *Service) SelfVerificationMenu(ctx context.Context, m domain.Message, pages ...int64) (result error) {
 	if m.From == nil || m.Chat.Type != "private" || m.Chat.ID != m.From.ID {
 		return nil
+	}
+	ctx, cancel, admitted, err := s.beginMenu(ctx, m.From.ID)
+	defer cancel()
+	defer finishMenu(&result)
+	if err != nil || !admitted {
+		return err
 	}
 	before := int64(0)
 	if len(pages) > 0 {
@@ -29,15 +35,23 @@ func (s *Service) SelfVerificationMenu(ctx context.Context, m domain.Message, pa
 		return err
 	}
 	rows := [][]map[string]string{}
+	cursor, processed := before, 0
+	scan, stop := context.WithTimeout(ctx, 2*time.Second)
+	defer stop()
 	for _, g := range groups {
-		member, err := s.Bot.Member(ctx, g.ID, m.From.ID)
+		member, err := s.Bot.Member(scan, g.ID, m.From.ID)
 		if err != nil {
+			if errors.Is(err, telegram.ErrMenuLimited) || scan.Err() != nil {
+				break
+			}
 			var te *telegram.APIError
 			if errors.As(err, &te) && (te.Code == 400 || te.Code == 403) {
+				cursor, processed = g.ID, processed+1
 				continue
 			}
 			return err
 		}
+		cursor, processed = g.ID, processed+1
 		if member.Present() && member.Status == "restricted" {
 			rows = append(rows, []map[string]string{{"text": g.Title, "callback_data": fmt.Sprintf("sg:%d", g.ID)}})
 		}
@@ -46,8 +60,9 @@ func (s *Service) SelfVerificationMenu(ctx context.Context, m domain.Message, pa
 	if len(rows) == 0 {
 		text = "本页未找到你仍在群内且被禁言的群组。"
 	}
-	if len(groups) == 20 {
-		rows = append(rows, []map[string]string{{"text": "继续查找群组", "callback_data": fmt.Sprintf("sp:%d", groups[len(groups)-1].ID)}})
+	if len(groups) == 20 || processed < len(groups) {
+		text += "\n尚有群组未检查；查询繁忙时请稍后继续。"
+		rows = append(rows, []map[string]string{{"text": "继续查找 / 重试", "callback_data": fmt.Sprintf("sp:%d", cursor)}})
 	}
 	rows = append(rows, []map[string]string{{"text": "返回主菜单", "callback_data": "menu:home"}})
 	_, err = s.Bot.Send(ctx, m.Chat.ID, text, map[string]any{"inline_keyboard": rows}, 0)

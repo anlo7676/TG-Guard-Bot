@@ -24,9 +24,15 @@ func (s *Service) RegisterMenus(ctx context.Context) error {
 	}
 	return s.Bot.Call(ctx, "setChatMenuButton", map[string]any{"menu_button": map[string]string{"type": "commands"}}, nil)
 }
-func (s *Service) Home(ctx context.Context, m domain.Message) error {
+func (s *Service) Home(ctx context.Context, m domain.Message) (result error) {
 	if m.From == nil || m.Chat.Type != "private" || m.Chat.ID != m.From.ID {
 		return nil
+	}
+	ctx, cancel, admitted, err := s.beginMenu(ctx, m.From.ID)
+	defer cancel()
+	defer finishMenu(&result)
+	if err != nil || !admitted {
+		return err
 	}
 	manage, err := s.canManageGroups(ctx, m.From.ID)
 	role := "普通用户"
@@ -41,13 +47,20 @@ func (s *Service) Home(ctx context.Context, m domain.Message) error {
 		role = "机器人管理员"
 	}
 	text := fmt.Sprintf("TG Guard · 智能群管理\n\n你好，%s。\n当前身份：%s\n\n请选择下方功能。新人可点击下方自助验证，或从群内验证链接进入。", m.From.FirstName, role)
-	markup := map[string]any{"inline_keyboard": privateHomeRows(manage, s.IsSuperAdmin(m.From.ID), s.Bot.Username)}
+	// Incomplete discovery must still let administrators find later pages.
+	markup := map[string]any{"inline_keyboard": privateHomeRows(manage || err != nil, s.IsSuperAdmin(m.From.ID), s.Bot.Username)}
 	_, e := s.Bot.Send(ctx, m.Chat.ID, text, markup, 0)
 	return e
 }
-func (s *Service) PrivateSection(ctx context.Context, m domain.Message, section string) error {
+func (s *Service) PrivateSection(ctx context.Context, m domain.Message, section string) (result error) {
 	if m.From == nil || m.Chat.Type != "private" || m.Chat.ID != m.From.ID {
 		return nil
+	}
+	ctx, cancel, admitted, err := s.beginMenu(ctx, m.From.ID)
+	defer cancel()
+	defer finishMenu(&result)
+	if err != nil || !admitted {
+		return err
 	}
 	if (section == "panel" || section == "admins" || section == "ai") && !s.IsSuperAdmin(m.From.ID) {
 		return s.text(ctx, m.Chat.ID, "此功能仅供机器人管理员使用。普通成员可在主菜单进行自助验证。")
@@ -106,7 +119,7 @@ func (s *Service) MenuCallback(ctx context.Context, c domain.Callback) error {
 		return nil
 	}
 	// Group callbacks always recheck live group permissions before accessing data.
-	_ = s.Bot.AnswerCallback(ctx, c.ID, "")
+	s.acknowledgeMenu(ctx, c.ID)
 	m := *c.Message
 	m.From = &c.From
 	if strings.HasPrefix(c.Data, "gmc:") {
@@ -115,12 +128,12 @@ func (s *Service) MenuCallback(ctx context.Context, c domain.Callback) error {
 			return e
 		}
 		if data == "" {
-			return s.text(ctx, m.Chat.ID, "菜单已过期或不属于你，请发送 /menu 重新打开。")
+			return s.menuText(ctx, m.Chat.ID, "菜单已过期或不属于你，请发送 /menu 重新打开。")
 		}
 		return s.GroupMenu(ctx, m, data)
 	}
 	if strings.HasPrefix(c.Data, "gm:") {
-		return s.text(ctx, m.Chat.ID, "旧版菜单已更新，请发送 /menu 重新打开。")
+		return s.menuText(ctx, m.Chat.ID, "旧版菜单已更新，请发送 /menu 重新打开。")
 	}
 	if strings.HasPrefix(c.Data, "menu:groups:") {
 		parts := strings.Split(strings.TrimPrefix(c.Data, "menu:groups:"), ":")

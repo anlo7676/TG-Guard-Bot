@@ -4,11 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"tgguard/internal/domain"
 	"tgguard/internal/store"
+	"tgguard/internal/telegram"
 	"time"
 )
 
@@ -23,7 +25,7 @@ func (s *Service) groupMenuSend(ctx context.Context, user int64, text string, ro
 	_, err = s.Bot.Send(ctx, user, text, map[string]any{"inline_keyboard": rows}, 0)
 	return err
 }
-func (s *Service) MyGroups(ctx context.Context, m domain.Message, before int64, sections ...string) error {
+func (s *Service) MyGroups(ctx context.Context, m domain.Message, before int64, sections ...string) (result error) {
 	section := "home"
 	if len(sections) > 0 {
 		section = sections[0]
@@ -34,12 +36,11 @@ func (s *Service) MyGroups(ctx context.Context, m domain.Message, before int64, 
 	if m.From == nil || m.Chat.Type != "private" || m.Chat.ID != m.From.ID {
 		return nil
 	}
-	manage, err := s.canManageGroups(ctx, m.From.ID)
-	if err != nil {
-		return s.text(ctx, m.Chat.ID, "暂时无法确认群管理权限，请稍后重试。")
-	}
-	if !manage {
-		return s.Home(ctx, m)
+	ctx, cancel, admitted, err := s.beginMenu(ctx, m.From.ID)
+	defer cancel()
+	defer finishMenu(&result)
+	if err != nil || !admitted {
+		return err
 	}
 	groups, err := s.Store.MenuGroups(ctx, before)
 	if err != nil {
@@ -51,14 +52,26 @@ func (s *Service) MyGroups(ctx context.Context, m domain.Message, before int64, 
 		count = 10
 	}
 	failed := false
+	cursor, processed := before, 0
+	// Keep one second of the menu deadline for the partial-page response.
+	scan, stop := context.WithTimeout(ctx, 2*time.Second)
+	defer stop()
 	for _, g := range groups[:count] {
-		check, cancel := context.WithTimeout(ctx, 2*time.Second)
-		allowed, e := s.Admin(check, g.ID, m.From.ID)
-		cancel()
-		if e != nil {
+		allowed, e := s.Admin(scan, g.ID, m.From.ID)
+		if errors.Is(e, telegram.ErrMenuLimited) || scan.Err() != nil {
 			failed = true
-			continue
+			break
 		}
+		if e != nil {
+			var te *telegram.APIError
+			if errors.As(e, &te) && (te.Code == 400 || te.Code == 403) {
+				cursor, processed = g.ID, processed+1
+				continue
+			}
+			failed = true
+			break
+		}
+		cursor, processed = g.ID, processed+1
 		if !allowed {
 			continue
 		}
@@ -75,8 +88,8 @@ func (s *Service) MyGroups(ctx context.Context, m domain.Message, before int64, 
 	if failed {
 		text += "\n部分群权限暂时无法确认，请稍后刷新。"
 	}
-	if len(groups) > 10 {
-		rows = append(rows, []menuButton{button("继续查找下一页", fmt.Sprintf("menu:groups:%d:%s", groups[9].ID, section))})
+	if len(groups) > processed {
+		rows = append(rows, []menuButton{button("继续查找 / 重试", fmt.Sprintf("menu:groups:%d:%s", cursor, section))})
 	}
 	rows = append(rows, []menuButton{button("刷新群列表", fmt.Sprintf("menu:groups:0:%s", section)), button("主菜单", "menu:home")})
 	return s.groupMenuSend(ctx, m.Chat.ID, text, rows)

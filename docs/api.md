@@ -2,7 +2,7 @@
 
 所有管理路由前缀为 `/api/v1`，接受 `Authorization: Bearer <ADMIN_API_TOKEN>` 或 Web 登录会话（写操作需要 `X-CSRF-Token`）。此凭据具有全局管理权限，不能嵌入公开前端。以 HTTPS 反向代理发布远程接口。
 
-写入请求使用 `Content-Type: application/json`，最大 64 KiB；未知字段和尾随第二个 JSON 值返回 400。凭据错误返回 401，跨 Origin 写入返回 403，资源不存在返回 404，超出每客户端 IP 每分钟 120 次返回 429。服务不信任 `X-Forwarded-For`；反向代理下默认按代理 IP 共享限制。
+写入请求使用 `Content-Type: application/json`，最大 64 KiB（数据库恢复使用单独的上传限制）；未知字段和尾随第二个 JSON 值返回 400。凭据错误返回 401，跨 Origin 写入返回 403，资源不存在返回 404，超出每客户端 IP 每分钟 120 次返回 429。默认不信任 `X-Forwarded-For`，按连接来源 IP 限流；配置 `TRUSTED_PROXY_CIDRS` 后，仅对可信代理连接解析转发链。HTTPS Compose 模板已配置其 Caddy 代理地址，不应将所有公网地址加入信任范围。
 
 ## 路由
 
@@ -138,7 +138,7 @@
 ## 健康检查和 Webhook
 
 - `GET /health/live`：进程存活，不访问数据库。
-- `GET /health/ready`：MySQL／Redis 可连接，失败返回 503；不代表 Telegram 或 AI 的外部连通性。
+- `GET /health/ready`：检查 MySQL／Redis、Telegram 摄取健康及队列积压（不能超过五分钟），不满足时返回 503；不检查 AI 服务的实时连通性。
 - `POST /telegram/webhook`：只在 Webhook 模式注册。要求 `X-Telegram-Bot-Api-Secret-Token`，最大 1 MiB，只有写入 MySQL 收件箱后才返回成功。
 
 ## v1.1 可用性更新

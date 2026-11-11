@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"tgguard/internal/telegram"
 	"time"
 )
@@ -14,33 +15,44 @@ func (s *Service) canManageGroups(ctx context.Context, user int64) (bool, error)
 	if s.Store == nil {
 		return false, nil
 	}
-	check, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	before := int64(0)
-	for {
-		groups, err := s.Store.MenuGroups(check, before)
-		if err != nil {
-			return false, err
-		}
-		for _, g := range groups {
-			allowed, err := s.Admin(check, g.ID, user)
-			if err != nil {
-				var te *telegram.APIError
-				if errors.As(err, &te) && (te.Code == 400 || te.Code == 403) {
-					before = g.ID
-					continue
-				}
-				return false, err
-			}
-			if allowed {
-				return true, nil
-			}
-			before = g.ID
-		}
-		if len(groups) < 11 {
-			return false, nil
+	key := fmt.Sprintf("menu:role:%d", user)
+	if s.State != nil {
+		var cached bool
+		if err := s.State.Get(ctx, key, &cached); err == nil {
+			return cached, nil
 		}
 	}
+	remember := func(value bool) (bool, error) {
+		if s.State != nil {
+			if err := s.State.Put(ctx, key, value, 30*time.Second); err != nil {
+				return false, err
+			}
+		}
+		return value, nil
+	}
+	check, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	groups, err := s.Store.MenuGroups(check, 0)
+	if err != nil {
+		return false, err
+	}
+	for i, g := range groups {
+		if i == 10 {
+			return false, errors.New("menu role discovery incomplete; use paginated groups")
+		}
+		allowed, err := s.Admin(check, g.ID, user)
+		if err != nil {
+			var te *telegram.APIError
+			if errors.As(err, &te) && (te.Code == 400 || te.Code == 403) {
+				continue
+			}
+			return false, err
+		}
+		if allowed {
+			return remember(true)
+		}
+	}
+	return remember(false)
 }
 
 func privateHomeRows(manage, super bool, username string) [][]map[string]string {

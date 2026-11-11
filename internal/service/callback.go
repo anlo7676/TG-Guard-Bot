@@ -59,10 +59,12 @@ func (s *Service) Callback(ctx context.Context, c domain.Callback) error {
 			return nil
 		}
 		id, err := strconv.ParseInt(c.Data[3:], 10, 64)
-		if err != nil || id >= 0 {
+		if err != nil || id > 0 || (id == 0 && strings.HasPrefix(c.Data, "sg:")) {
 			return nil
 		}
-		if err = s.Bot.AnswerCallback(ctx, c.ID, ""); err != nil {
+		if strings.HasPrefix(c.Data, "sp:") {
+			s.acknowledgeMenu(ctx, c.ID)
+		} else if err = s.Bot.AnswerCallback(ctx, c.ID, ""); err != nil {
 			return err
 		}
 		m := *c.Message
