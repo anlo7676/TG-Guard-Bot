@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-var Version = "1.14.3"
+var Version = "1.15.0"
 var BuiltAt = "unknown"
 var Source = "development"
 var StartedAt = time.Now().UTC()

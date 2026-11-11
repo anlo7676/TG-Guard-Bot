@@ -1,6 +1,6 @@
 module tgguard
 
-go 1.26.7
+go 1.26.11
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2

@@ -4,7 +4,7 @@
 
 | 需求原方案 | 本项目 |
 | --- | --- |
-| Python 3.12 / aiogram | Go 1.26.7，独立 Telegram HTTP 客户端 |
+| Python 3.12 / aiogram | Go 1.26.11，独立 Telegram HTTP 客户端 |
 | FastAPI | Go 标准库 net/http 路由和中间件 |
 | PostgreSQL / SQLAlchemy | MySQL 8.4 / database/sql / go-sql-driver/mysql |
 | Alembic | 内嵌、版本化 SQL 迁移，数据库互斥锁 |
