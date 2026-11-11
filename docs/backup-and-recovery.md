@@ -1,5 +1,17 @@
 # 备份与恢复
 
+## Web 数据库备份与恢复
+
+后台「系统设置 → 数据库备份/恢复」可下载 `.tggbackup` 加密文件，再选择文件、确认已另存当前备份并输入 `RESTORE` 执行覆盖恢复。适用于项目全部 MySQL 表，包括群设置、用户、规则、日志、验证、队列、管理员凭据和加密系统设置。不包含 `.env`、Redis、Telegram 历史消息和服务器文件；请单独安全保管 `.env`。
+
+备份采用同一事务的一致性快照，并使用 `SETTINGS_ENCRYPTION_KEY`（未配置时使用 `ADMIN_API_TOKEN`）派生密钥进行 AES-GCM 加密和完整性认证。恢复要求同一机器人、同一密钥及相同表结构。Web 路径按编码和内存预算限制为 32 MiB，超出时使用下方 Linux 脚本。Web 文件与脚本的 tar.gz/SQL 归档不能互换。
+
+恢复前应自行下载并保存当前备份。恢复等待现有业务结束，暂停轮询、队列处理、后台恢复任务和其他 API；全部表数据在单一事务中替换，提交前出错回滚，不执行上传的 SQL。成功后保持暂停，请执行 `docker compose restart app`；非 Docker 部署重启应用进程。启动时清空本机器人绑定的 Redis 数据库并重建身份绑定，所有旧登录会话、按钮和临时缓存失效，需要重新登录。服务提交后即使意外退出，持久恢复标记也会保证下一次启动执行缓存清理。
+
+恢复会带回历史待处理队列、验证和处罚任务；重启前应确认它们仍适合执行。它不会撤回已经发生的 Telegram 操作。恢复期间不要执行升级、数据库 DDL 或外部写入。请求中断或数据库提交结果不明确时，不要重复上传，先检查日志与数据库，再重启服务。若解密或身份校验失败，业务继续运行；开始数据库恢复后失败则保持暂停，避免使用不确定状态。
+
+## Linux 完整归档
+
 Linux 管理菜单「9. 立即备份」生成配置、MySQL 和 Redis 归档；「10. 启用每日自动备份」安装 systemd 定时器。需要在已启动的 Git 项目目录中执行，自动备份需要 root/sudo。Windows 可以通过 SSH 在 Linux 服务器使用这些功能。
 
 也可运行 `bash scripts/backup.sh` 和 `sudo bash scripts/backup.sh --install`。定时任务为每天 UTC 03:30（北京时间 11:30）加最多 5 分钟随机延迟，关机错过后补执行。启用定时器不会立即备份；请先执行一次手动备份并确认成功。使用 `systemctl list-timers tg-guard-backup.timer` 查看下次时间，`journalctl -u tg-guard-backup.service` 查看结果。停用使用 `systemctl disable --now tg-guard-backup.timer`。

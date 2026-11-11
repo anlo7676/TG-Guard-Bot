@@ -8,6 +8,8 @@
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
+| GET | `/database/backup` | 下载 AES-GCM 加密的 `.tggbackup` MySQL 备份 |
+| POST | `/database/restore` | 上传 Web 备份覆盖数据库，成功后重启应用 |
 | GET | `/dashboard` | UTC 当日消息审核、删除、AI 调用／Token、死信及群／用户数量 |
 | GET | `/groups` | 群列表 |
 | GET / PUT | `/groups/{chat}/settings` | 查看／覆盖群设置，未提供字段保持当前值 |
@@ -23,6 +25,10 @@
 | GET | `/queue/dead` | 重试耗尽的 Update 元数据，不返回原始消息负载 |
 
 `chat` 必须为负数 Telegram 超级群 ID；只有名单接口允许 `chat=0` 表示全局名单。通用列表上限 100，可用 `?before=上一页最小ID` 翻页；群列表用 `chat_id`，用户列表用 `user_id`，死信用 `update_id`。关键词列表返回该群全部规则，验证列表仅最近 100 条。列表中的 MySQL JSON 列以 JSON 字符串返回，前端按需解析；群设置和关键词是结构化 JSON。
+
+数据库恢复是请求体规则的例外：`Content-Type: application/octet-stream`，上传原始 `.tggbackup` 文件（最大 32 MiB 加密负载及头部），额外要求 `X-Confirm-Restore: RESTORE`，会话方式仍需 CSRF。备份/恢复请求超时为 4 分钟。恢复后其他业务接口返回 503，重启应用后恢复。详见 [备份与恢复](backup-and-recovery.md)。
+
+群设置新增 `verification_channel_enabled`、`verification_channel_id`（负数数字 ID）及 `verification_channel_url`（公开频道或私有邀请的 `https://t.me/…` 链接）。先配置 ID、链接，再启用。要求机器人是目标频道管理员；验证答案提交时实时检查成员状态。未加入、待审批或 API 查询失败不会放行，也不增加答错次数。该条件适用于新人验证和自助解禁，关闭新人验证时不会额外拦截新成员；已有管理员、白名单等免验证逻辑保留。
 
 验证记录的 `purpose` 为 `join`（新人入群验证）或 `self_unmute`（自助解禁）；`status` 是验证状态，`unmute_status` 是对应解禁操作的状态。只有实际解禁成功时才返回 `unmuted_at`；该时间是历史操作完成时间，不代表用户当前仍未被禁言。`username`、`display_name` 为已记录的用户信息，未记录时可能为空；`last_error`、`unmute_error` 分别表示验证流程和解禁操作的错误。成员详情中的验证记录返回相同字段。
 

@@ -42,6 +42,8 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("POST /telegram/webhook", s.webhook)
 	}
 	admin := http.NewServeMux()
+	admin.HandleFunc("GET /api/v1/database/backup", s.backupDatabase)
+	admin.HandleFunc("POST /api/v1/database/restore", s.restoreDatabase)
 	admin.HandleFunc("GET /api/v1/upgrades", s.upgrades)
 	admin.HandleFunc("GET /api/v1/upgrades/check", s.checkUpgrade)
 	admin.HandleFunc("POST /api/v1/upgrades", s.upgrades)
@@ -82,6 +84,20 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 		w.Header().Set("Referrer-Policy", "no-referrer")
+		// Restore owns the exclusive drain; assets remain available for its result.
+		if r.URL.Path != "/api/v1/database/restore" && (strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/auth/") || r.URL.Path == "/telegram/webhook" || r.URL.Path == "/health/ready") {
+			leave, ok := s.Service.Maintenance.Enter()
+			if !ok {
+				respond(w, 503, map[string]string{"error": "数据库维护中，请在恢复完成后重启应用服务"})
+				return
+			}
+			defer leave()
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/v1/database/") {
+			controller := http.NewResponseController(w)
+			_ = controller.SetReadDeadline(time.Now().Add(2 * time.Minute))
+			_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Minute))
+		}
 		mux.ServeHTTP(w, r)
 	})
 }
@@ -92,6 +108,9 @@ func SecretEqual(a, b string) bool {
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		timeout := 10 * time.Second
+		if strings.HasPrefix(r.URL.Path, "/api/v1/database/") {
+			timeout = 4 * time.Minute
+		}
 		if r.URL.Path == "/api/v1/system/test-ai" {
 			timeout = 35 * time.Second
 		}

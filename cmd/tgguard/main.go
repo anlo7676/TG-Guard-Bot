@@ -119,6 +119,22 @@ func runApplication(parent context.Context, c config.Config, migrateOnly bool, n
 		return errors.New("another TG Guard instance is running; stop it before starting this instance")
 	}
 	defer store.ReleaseLock(leaseConn, lockName)
+	if pending, err := db.RestorePending(startup); err != nil {
+		return err
+	} else if pending {
+		// BindBot above verifies that this Redis database belongs to this bot.
+		// Only the restored instance owner may clear stale sessions and callbacks.
+		if err = cache.R.FlushDB(startup).Err(); err != nil {
+			return err
+		}
+		if err = cache.BindBot(startup, tg.ID); err != nil {
+			return err
+		}
+		if err = db.FinishRestore(startup); err != nil {
+			return err
+		}
+		slog.Warn("database restore finalized; Redis temporary state cleared")
+	}
 	if e = svc.RegisterMenus(startup); e != nil {
 		return e
 	}

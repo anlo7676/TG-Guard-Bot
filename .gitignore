@@ -25,6 +25,7 @@ coverage-*.out
 *.log
 *.pid
 /backups/
+*.tggbackup
 /dumps/
 /data/
 /.updates/

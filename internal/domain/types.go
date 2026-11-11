@@ -115,39 +115,42 @@ func (u Update) Partition() int64 {
 }
 
 type Settings struct {
-	WelcomeEnabled         bool                   `json:"welcome_enabled"`
-	WelcomeText            string                 `json:"welcome_text"`
-	AdRules                []AdRule               `json:"ad_rules"`
-	VerificationEnabled    bool                   `json:"verification_enabled"`
-	VerificationTimeout    int                    `json:"verification_timeout"`
-	VerificationType       string                 `json:"verification_type"`
-	VerificationFailAction string                 `json:"verification_fail_action"`
-	ModerationEnabled      bool                   `json:"moderation_enabled"`
-	AIEnabled              bool                   `json:"ai_enabled"`
-	AIThreshold            int                    `json:"ai_threshold"`
-	DirectThreshold        int                    `json:"direct_threshold"`
-	AIWarnConfidence       float64                `json:"ai_warn_confidence"`
-	AIDeleteConfidence     float64                `json:"ai_delete_confidence"`
-	AIMuteConfidence       float64                `json:"ai_mute_confidence"`
-	SpamEnabled            bool                   `json:"spam_enabled"`
-	RateLimit              int                    `json:"rate_limit"`
-	RateWindow             int                    `json:"rate_window"`
-	DuplicateLimit         int                    `json:"duplicate_limit"`
-	KeywordEnabled         bool                   `json:"keyword_enabled"`
-	KeywordAll             bool                   `json:"keyword_all"`
-	AutoDelete             bool                   `json:"auto_delete"`
-	AutoWarn               bool                   `json:"auto_warn"`
-	AutoMute               bool                   `json:"auto_mute"`
-	AutoBan                bool                   `json:"auto_ban"`
-	MuteSeconds            int                    `json:"mute_seconds"`
-	MuteAfter              int                    `json:"mute_after"`
-	BanAfter               int                    `json:"ban_after"`
-	NewMemberProtection    bool                   `json:"new_member_protection"`
-	AdminBypass            bool                   `json:"admin_bypass"`
-	ReviewAccess           string                 `json:"review_access"`
-	LogChannel             int64                  `json:"log_channel"`
-	Language               string                 `json:"language"`
-	Rules                  map[string]RuleSetting `json:"rules"`
+	VerificationChannelEnabled bool                   `json:"verification_channel_enabled"`
+	VerificationChannelID      int64                  `json:"verification_channel_id"`
+	VerificationChannelURL     string                 `json:"verification_channel_url"`
+	WelcomeEnabled             bool                   `json:"welcome_enabled"`
+	WelcomeText                string                 `json:"welcome_text"`
+	AdRules                    []AdRule               `json:"ad_rules"`
+	VerificationEnabled        bool                   `json:"verification_enabled"`
+	VerificationTimeout        int                    `json:"verification_timeout"`
+	VerificationType           string                 `json:"verification_type"`
+	VerificationFailAction     string                 `json:"verification_fail_action"`
+	ModerationEnabled          bool                   `json:"moderation_enabled"`
+	AIEnabled                  bool                   `json:"ai_enabled"`
+	AIThreshold                int                    `json:"ai_threshold"`
+	DirectThreshold            int                    `json:"direct_threshold"`
+	AIWarnConfidence           float64                `json:"ai_warn_confidence"`
+	AIDeleteConfidence         float64                `json:"ai_delete_confidence"`
+	AIMuteConfidence           float64                `json:"ai_mute_confidence"`
+	SpamEnabled                bool                   `json:"spam_enabled"`
+	RateLimit                  int                    `json:"rate_limit"`
+	RateWindow                 int                    `json:"rate_window"`
+	DuplicateLimit             int                    `json:"duplicate_limit"`
+	KeywordEnabled             bool                   `json:"keyword_enabled"`
+	KeywordAll                 bool                   `json:"keyword_all"`
+	AutoDelete                 bool                   `json:"auto_delete"`
+	AutoWarn                   bool                   `json:"auto_warn"`
+	AutoMute                   bool                   `json:"auto_mute"`
+	AutoBan                    bool                   `json:"auto_ban"`
+	MuteSeconds                int                    `json:"mute_seconds"`
+	MuteAfter                  int                    `json:"mute_after"`
+	BanAfter                   int                    `json:"ban_after"`
+	NewMemberProtection        bool                   `json:"new_member_protection"`
+	AdminBypass                bool                   `json:"admin_bypass"`
+	ReviewAccess               string                 `json:"review_access"`
+	LogChannel                 int64                  `json:"log_channel"`
+	Language                   string                 `json:"language"`
+	Rules                      map[string]RuleSetting `json:"rules"`
 }
 type RuleSetting struct {
 	Action  string `json:"action,omitempty"`
@@ -159,6 +162,15 @@ func DefaultSettings() Settings {
 	return Settings{WelcomeEnabled: true, WelcomeText: "欢迎 {name} 加入 {group}！", AdRules: []AdRule{}, VerificationEnabled: true, VerificationTimeout: 180, VerificationType: "math", VerificationFailAction: "kick", ModerationEnabled: true, AIThreshold: 30, DirectThreshold: 80, AIWarnConfidence: .6, AIDeleteConfidence: .8, AIMuteConfidence: .95, SpamEnabled: true, RateLimit: 5, RateWindow: 10, DuplicateLimit: 3, KeywordEnabled: true, AutoDelete: true, AutoWarn: true, AutoMute: true, MuteSeconds: 3600, MuteAfter: 2, BanAfter: 3, NewMemberProtection: true, AdminBypass: true, ReviewAccess: "all", Language: "zh_CN", Rules: map[string]RuleSetting{}}
 }
 func (s Settings) Validate() error {
+	if s.VerificationChannelID > 0 || s.VerificationChannelID < -4503599627370495 {
+		return errors.New("频道 ID 必须为 Telegram 负数 ID，0 表示未设置")
+	}
+	if s.VerificationChannelURL != "" && !channelLink.MatchString(s.VerificationChannelURL) {
+		return errors.New("频道链接须为 https://t.me/频道用户名 或 https://t.me/+邀请代码")
+	}
+	if s.VerificationChannelEnabled && (s.VerificationChannelID == 0 || s.VerificationChannelURL == "") {
+		return errors.New("开启频道验证前请先配置频道 ID 和加入链接")
+	}
 	if e := s.validateLocalSettings(); e != nil {
 		return e
 	}
@@ -189,6 +201,8 @@ func one(s string, opts ...string) bool {
 	}
 	return false
 }
+
+var channelLink = regexp.MustCompile(`^https://t\.me/(?:[A-Za-z][A-Za-z0-9_]{4,31}|\+[A-Za-z0-9_-]{1,128}|joinchat/[A-Za-z0-9_-]{1,128})$`)
 
 type Normalized struct {
 	Contexts       []Normalized `json:"contexts,omitempty"`

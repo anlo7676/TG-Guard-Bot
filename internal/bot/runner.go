@@ -22,27 +22,46 @@ func (h *Handler) Poll(ctx context.Context) error {
 		return e
 	}
 	for ctx.Err() == nil {
-		var updates []domain.Update
-		e = h.caller().Call(ctx, "getUpdates", map[string]any{"offset": offset, "timeout": 25, "limit": 100, "allowed_updates": AllowedUpdates}, &updates)
-		h.health().Record(e == nil)
-		if e != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			slog.Error("poll failed", "error", e)
-			state.Sleep(ctx, 3*time.Second)
-			continue
+		if e = h.pollBatch(ctx, &offset); e != nil {
+			return e
 		}
-		for _, u := range updates {
-			if e = h.inbox().Enqueue(ctx, u); e != nil {
-				return e
-			}
-			offset = u.ID + 1
+	}
+	return nil
+}
+func (h *Handler) enterBusiness() (func(), bool) {
+	if h.Service == nil {
+		return func() {}, true
+	}
+	return h.Service.Maintenance.Enter()
+}
+func (h *Handler) pollBatch(ctx context.Context, offset *int64) error {
+	leave, ok := h.enterBusiness()
+	if !ok {
+		state.Sleep(ctx, time.Second)
+		return nil
+	}
+	defer leave()
+	var e error
+	var updates []domain.Update
+	e = h.caller().Call(ctx, "getUpdates", map[string]any{"offset": *offset, "timeout": 25, "limit": 100, "allowed_updates": AllowedUpdates}, &updates)
+	h.health().Record(e == nil)
+	if e != nil {
+		if ctx.Err() != nil {
+			return nil
 		}
-		if len(updates) > 0 {
-			if e = h.inbox().SaveOffset(ctx, offset); e != nil {
-				return e
-			}
+		slog.Error("poll failed", "error", e)
+		state.Sleep(ctx, 3*time.Second)
+		return nil
+	}
+	for _, u := range updates {
+		if e = h.inbox().Enqueue(ctx, u); e != nil {
+			return e
+		}
+		*offset = u.ID + 1
+	}
+	if len(updates) > 0 {
+		if e = h.inbox().SaveOffset(ctx, *offset); e != nil {
+			return e
 		}
 	}
 	return nil
@@ -61,12 +80,18 @@ func (h *Handler) Workers(ctx context.Context, count int) {
 	go func() {
 		defer wg.Done()
 		for ctx.Err() == nil {
+			leave, ok := h.enterBusiness()
+			if !ok {
+				state.Sleep(ctx, time.Second)
+				continue
+			}
 			if e := h.Service.SweepTakeovers(ctx); e != nil && ctx.Err() == nil {
 				slog.Error("takeover recovery failed", "error", e)
 			}
 			if e := h.Service.SweepVerification(ctx); e != nil && ctx.Err() == nil {
 				slog.Error("verification sweep failed", "error", e)
 			}
+			leave()
 			state.Sleep(ctx, 5*time.Second)
 		}
 	}()
@@ -74,9 +99,15 @@ func (h *Handler) Workers(ctx context.Context, count int) {
 	go func() {
 		defer wg.Done()
 		for ctx.Err() == nil {
+			leave, ok := h.enterBusiness()
+			if !ok {
+				state.Sleep(ctx, time.Second)
+				continue
+			}
 			if e := h.Service.SweepWelcomeCleanup(ctx); e != nil && ctx.Err() == nil {
 				slog.Error("welcome cleanup failed", "error", e)
 			}
+			leave()
 			state.Sleep(ctx, time.Second)
 		}
 	}()
@@ -84,6 +115,11 @@ func (h *Handler) Workers(ctx context.Context, count int) {
 	go func() {
 		defer wg.Done()
 		for ctx.Err() == nil {
+			leave, ok := h.enterBusiness()
+			if !ok {
+				state.Sleep(ctx, time.Second)
+				continue
+			}
 			if h.Service.RetentionDays > 0 {
 				c, cancel := context.WithTimeout(ctx, 30*time.Second)
 				if e := h.Service.Store.RetainData(c, h.Service.RetentionDays); e != nil && ctx.Err() == nil {
@@ -91,6 +127,7 @@ func (h *Handler) Workers(ctx context.Context, count int) {
 				}
 				cancel()
 			}
+			leave()
 			state.Sleep(ctx, time.Hour)
 		}
 	}()
@@ -118,12 +155,19 @@ func (h *Handler) Workers(ctx context.Context, count int) {
 }
 func (h *Handler) worker(ctx context.Context, id int) {
 	for ctx.Err() == nil {
+		leave, ok := h.enterBusiness()
+		if !ok {
+			state.Sleep(ctx, time.Second)
+			continue
+		}
 		j, e := h.inbox().Claim(ctx)
 		if errors.Is(e, sql.ErrNoRows) {
+			leave()
 			state.Sleep(ctx, 300*time.Millisecond)
 			continue
 		}
 		if e != nil {
+			leave()
 			if ctx.Err() == nil {
 				slog.Error("queue claim failed", "worker", id, "error", e)
 			}
@@ -136,6 +180,7 @@ func (h *Handler) worker(ctx context.Context, id int) {
 		done, stop := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		finishErr := h.inbox().Finish(done, j, e)
 		stop()
+		leave()
 		if finishErr != nil {
 			slog.Error("queue completion failed", "update_id", j.Update.ID, "error", finishErr)
 		}

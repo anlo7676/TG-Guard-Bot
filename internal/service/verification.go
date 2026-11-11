@@ -163,6 +163,11 @@ func (s *Service) StartVerification(ctx context.Context, m domain.Message, token
 		return e
 	}
 	var markup any
+	if settings.VerificationChannelEnabled {
+		if e := s.channelVerificationPrompt(ctx, v.UserID, settings); e != nil {
+			return e
+		}
+	}
 	if v.Type == "button" {
 		markup = map[string]any{"inline_keyboard": [][]map[string]string{{{"text": i18n.Text(settings.Language, "robot"), "callback_data": "v:" + token + ":robot"}, {"text": i18n.Text(settings.Language, "human"), "callback_data": "v:" + token + ":human"}, {"text": i18n.Text(settings.Language, "skip"), "callback_data": "v:" + token + ":skip"}}}}
 	} else {
@@ -223,6 +228,20 @@ func (s *Service) AnswerVerification(ctx context.Context, token string, user int
 	}
 	if v.Status == "completing" {
 		return s.finishVerification(ctx, v)
+	}
+	if v.Status == "pending" && time.Now().Before(v.ExpiresAt) {
+		settings, err := s.Store.Settings(ctx, v.ChatID)
+		if err != nil {
+			return err
+		}
+		ok, err := s.verificationChannelMember(ctx, user, settings)
+		if err != nil {
+			slog.Warn("channel verification unavailable", "chat_id", v.ChatID, "error", err)
+			return s.text(ctx, user, "暂时无法检查频道成员状态，请稍后重试；若持续失败，请联系管理员检查机器人在频道中的管理权限。")
+		}
+		if !ok {
+			return s.channelVerificationPrompt(ctx, user, settings)
+		}
 	}
 	v, e = s.Store.Answer(ctx, token, user, answer, events...)
 	if errors.Is(e, store.ErrVerification) {

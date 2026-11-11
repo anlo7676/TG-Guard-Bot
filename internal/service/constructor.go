@@ -19,5 +19,8 @@ func New(deps Service) (*Service, error) {
 	if deps.Executor == nil {
 		deps.Executor = deps.Bot
 	}
+	if deps.Maintenance == nil {
+		deps.Maintenance = &Maintenance{}
+	}
 	return &deps, nil
 }

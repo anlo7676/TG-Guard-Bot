@@ -16,6 +16,7 @@ import (
 )
 
 type Service struct {
+	Maintenance   *Maintenance
 	Executor      MemberExecutor
 	Health        *IngestionHealth
 	RetentionDays int

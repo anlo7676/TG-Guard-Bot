@@ -3,8 +3,11 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"os"
+	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -264,6 +267,64 @@ func TestMySQLIntegration(t *testing.T) {
 		var count int
 		if e = s.DB.QueryRowContext(ctx, "SELECT message_count FROM group_members WHERE chat_id=-100 AND user_id=1003").Scan(&count); e != nil || count != 1 {
 			t.Fatal(count, e)
+		}
+	})
+	t.Run("database backup round trip and atomic rollback", func(t *testing.T) {
+		b, err := s.BackupDatabase(ctx, 11)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = s.DB.ExecContext(ctx, "UPDATE bot_groups SET title='changed-after-backup'"); err != nil {
+			t.Fatal(err)
+		}
+		if err = s.RestoreDatabase(ctx, b, 11); err != nil {
+			t.Fatal(err)
+		}
+		pending, err := s.RestorePending(ctx)
+		if err != nil || !pending {
+			t.Fatal(pending, err)
+		}
+		if err = s.FinishRestore(ctx); err != nil {
+			t.Fatal(err)
+		}
+		after, err := s.BackupDatabase(ctx, 11)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Compare rows independently of storage-engine iteration order.
+		for i, table := range b.Tables {
+			original, _ := json.Marshal(table.Rows)
+			restored, _ := json.Marshal(after.Tables[i].Rows)
+			var aRows, bRows []json.RawMessage
+			json.Unmarshal(original, &aRows)
+			json.Unmarshal(restored, &bRows)
+			order := func(rows []json.RawMessage) []string {
+				result := make([]string, len(rows))
+				for j, row := range rows {
+					result[j] = string(row)
+				}
+				sort.Strings(result)
+				return result
+			}
+			if !reflect.DeepEqual(order(aRows), order(bRows)) {
+				t.Fatalf("round trip differs for %s", table.Name)
+			}
+		}
+		// Duplicate a primary key late in the import: all previous deletes/inserts
+		// must roll back, including changes to bot_state made earlier in the import.
+		bad := b
+		bad.Tables = append([]BackupTable(nil), b.Tables...)
+		for i := len(bad.Tables) - 1; i >= 0; i-- {
+			if len(bad.Tables[i].Rows) > 0 {
+				bad.Tables[i].Rows = append(append([][]*string(nil), bad.Tables[i].Rows...), bad.Tables[i].Rows[0])
+				break
+			}
+		}
+		if err = s.RestoreDatabase(ctx, bad, 11); err == nil {
+			t.Fatal("duplicate key restore accepted")
+		}
+		if pending, err = s.RestorePending(ctx); err != nil || pending {
+			t.Fatal("partial restore committed", pending, err)
 		}
 	})
 }
