@@ -68,9 +68,9 @@ func (s *Service) inspectProfile(ctx context.Context, chat, user int64, settings
 		}
 	}
 	r.BioAvailable, r.AvatarAvailable, r.AvatarHash, r.bio = data.BioAvailable, data.AvatarAvailable, data.AvatarHash, data.Bio
-	r.Domain = rules.ProfileDomain(data.Bio, settings.ProfileBlockedDomains)
+	r.Domain, r.Reason = rules.ProfileMatch(data.Bio, settings.ProfileBlockedDomains)
 	if r.Domain != "" {
-		r.Matched, r.Reason = true, "profile_domain:"+r.Domain
+		r.Matched = true
 		if learn && settings.ProfileAvatarMatch && data.AvatarHash != "" {
 			protected, err := s.Protected(ctx, chat, domain.User{ID: user})
 			if err != nil {
@@ -104,7 +104,7 @@ func (s *Service) profileLog(ctx context.Context, chat, user, message int64, key
 }
 
 // ProfileCheck is used by bounded administrative scans. Preview never writes
-// samples or punishments; learn explicitly seeds only domain-confirmed avatars.
+// samples or punishments; learn seeds only confirmed domain/contact avatars.
 func (s *Service) ProfileCheck(ctx context.Context, chat, user int64, apply, learn bool, actor int64) (ProfileResult, error) {
 	r := ProfileResult{UserID: user}
 	if user <= 0 {

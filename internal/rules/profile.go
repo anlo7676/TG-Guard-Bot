@@ -17,6 +17,24 @@ import (
 // Consume whole hostname-shaped tokens so lookalike suffixes cannot match.
 var profileHost = regexp.MustCompile(`[\pL\pN_-]+(?:\.[\pL\pN_-]+)+`)
 
+// A verified advertiser alias requires both the business claim and its exact
+// contact, next to each other. Random prefix/suffix text is not an exemption.
+var heiyingContact = regexp.MustCompile(`黑\s*[鹰鷹]\s*[广廣]\s*告\s*(?:宣\s*[传傳]|合\s*作|推\s*[广廣]|商\s*[务務])?\s*[联聯]\s*[系繫][\s:：|｜,，、/／-]*(?:@|(?:https?://)?(?:t|telegram)\.me/)heiying666(?:$|[^a-z0-9_])`)
+
+// ProfileMatch associates verified contact aliases with the configured domain.
+// Removing heiying.co disables both its domain and contact-phrase matching.
+func ProfileMatch(bio string, domains []string) (domain, reason string) {
+	if d := ProfileDomain(bio, domains); d != "" {
+		return d, "profile_domain:" + d
+	}
+	for _, d := range domains {
+		if d == "heiying.co" && heiyingContact.MatchString(Clean(bio)) {
+			return d, "profile_contact:heiying666"
+		}
+	}
+	return "", ""
+}
+
 func ProfileDomain(bio string, domains []string) string {
 	for _, host := range profileHost.FindAllString(Clean(bio), -1) {
 		for _, d := range domains {

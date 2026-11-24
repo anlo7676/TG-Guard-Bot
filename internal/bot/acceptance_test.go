@@ -2131,7 +2131,7 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		}
 		mu.Lock()
 		for uid := int64(9910010); uid <= 9910015; uid++ {
-			profileBios[uid] = "黑鹰广告官方网站： heiying.co"
+			profileBios[uid] = "BuI黑鹰广告合作联系：@heiying666 N3g"
 			roles[uid] = "member"
 		}
 		roles[9910011] = "administrator"
@@ -2142,7 +2142,7 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		}
 		before := count("banChatMember")
 		preview, err := svc.ProfileCheck(ctx, chat.ID, 9910010, false, false, 42)
-		if err != nil || !preview.Matched || preview.Applied || count("banChatMember") != before {
+		if err != nil || !preview.Matched || preview.Reason != "profile_contact:heiying666" || preview.Applied || count("banChatMember") != before {
 			t.Fatal(preview, err)
 		}
 		if kind, err := db.ListStatus(ctx, chat.ID, 9910010, ""); err != nil || kind != "" {
