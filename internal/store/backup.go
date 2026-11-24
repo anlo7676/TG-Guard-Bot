@@ -15,7 +15,7 @@ import (
 
 const MaxBackupBytes = 32 << 20
 
-var backupTables = []string{"schema_migrations", "bot_groups", "users", "group_settings", "group_members", "list_entries", "keyword_rules", "verification_sessions", "moderation_logs", "punishments", "ai_usage_logs", "admin_audits", "feedback", "update_inbox", "bot_state", "system_settings", "welcome_cleanup", "verification_answers", "web_credentials", "authorization_epochs", "punishment_workflows", "ad_warning_memory"}
+var backupTables = []string{"schema_migrations", "bot_groups", "users", "group_settings", "group_members", "list_entries", "keyword_rules", "verification_sessions", "moderation_logs", "punishments", "ai_usage_logs", "admin_audits", "feedback", "update_inbox", "bot_state", "system_settings", "welcome_cleanup", "verification_answers", "web_credentials", "authorization_epochs", "punishment_workflows", "ad_warning_memory", "profile_avatar_samples"}
 var backupIdentifier = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 type DatabaseBackup struct {

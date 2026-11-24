@@ -56,6 +56,7 @@ func (s *Server) Handler() http.Handler {
 	admin.HandleFunc("GET /api/v1/dashboard", s.dashboard)
 	admin.HandleFunc("GET /api/v1/groups", s.groups)
 	admin.HandleFunc("POST /api/v1/groups/{chat}/rules/test", s.testRules)
+	admin.HandleFunc("POST /api/v1/groups/{chat}/profile-check", s.profileCheck)
 	admin.HandleFunc("GET /api/v1/rule-catalog", func(w http.ResponseWriter, r *http.Request) { respond(w, 200, domain.BuiltinRules) })
 	admin.HandleFunc("PUT /api/v1/groups/{chat}/authorization", s.authorization)
 	admin.HandleFunc("GET /api/v1/groups/{chat}/settings", s.settings)
@@ -108,6 +109,9 @@ func SecretEqual(a, b string) bool {
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		timeout := 10 * time.Second
+		if strings.HasSuffix(r.URL.Path, "/profile-check") {
+			timeout = 30 * time.Second
+		}
 		if strings.HasPrefix(r.URL.Path, "/api/v1/database/") {
 			timeout = 4 * time.Minute
 		}

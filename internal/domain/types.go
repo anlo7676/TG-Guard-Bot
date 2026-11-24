@@ -115,6 +115,9 @@ func (u Update) Partition() int64 {
 }
 
 type Settings struct {
+	ProfileGuardEnabled        bool                   `json:"profile_guard_enabled"`
+	ProfileBlockedDomains      []string               `json:"profile_blocked_domains"`
+	ProfileAvatarMatch         bool                   `json:"profile_avatar_match"`
 	VerificationChannelEnabled bool                   `json:"verification_channel_enabled"`
 	VerificationChannelID      int64                  `json:"verification_channel_id"`
 	VerificationChannelURL     string                 `json:"verification_channel_url"`
@@ -162,6 +165,9 @@ func DefaultSettings() Settings {
 	return Settings{WelcomeEnabled: true, WelcomeText: "欢迎 {name} 加入 {group}！", AdRules: []AdRule{}, VerificationEnabled: true, VerificationTimeout: 180, VerificationType: "math", VerificationFailAction: "kick", ModerationEnabled: true, AIThreshold: 30, DirectThreshold: 80, AIWarnConfidence: .6, AIDeleteConfidence: .8, AIMuteConfidence: .95, SpamEnabled: true, RateLimit: 5, RateWindow: 10, DuplicateLimit: 3, KeywordEnabled: true, AutoDelete: true, AutoWarn: true, AutoMute: true, MuteSeconds: 3600, MuteAfter: 2, BanAfter: 3, NewMemberProtection: true, AdminBypass: true, ReviewAccess: "all", Language: "zh_CN", Rules: map[string]RuleSetting{}}
 }
 func (s Settings) Validate() error {
+	if err := validateProfileDomains(s.ProfileBlockedDomains); err != nil {
+		return err
+	}
 	if s.VerificationChannelID > 0 || s.VerificationChannelID < -4503599627370495 {
 		return errors.New("频道 ID 必须为 Telegram 负数 ID，0 表示未设置")
 	}

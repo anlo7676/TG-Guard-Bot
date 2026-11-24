@@ -38,7 +38,7 @@ func TestMySQLIntegration(t *testing.T) {
 	if e = s.Migrate(ctx); e != nil {
 		t.Fatal("migration not idempotent", e)
 	}
-	for _, table := range []string{"ad_warning_memory", "punishment_workflows", "authorization_epochs", "web_credentials", "verification_answers", "welcome_cleanup", "bot_groups", "users", "group_members", "group_settings", "list_entries", "keyword_rules", "verification_sessions", "moderation_logs", "punishments", "ai_usage_logs", "admin_audits", "feedback", "update_inbox", "bot_state", "system_settings"} {
+	for _, table := range []string{"profile_avatar_samples", "ad_warning_memory", "punishment_workflows", "authorization_epochs", "web_credentials", "verification_answers", "welcome_cleanup", "bot_groups", "users", "group_members", "group_settings", "list_entries", "keyword_rules", "verification_sessions", "moderation_logs", "punishments", "ai_usage_logs", "admin_audits", "feedback", "update_inbox", "bot_state", "system_settings"} {
 		if _, e = s.DB.ExecContext(ctx, "TRUNCATE TABLE "+table); e != nil {
 			t.Fatal(e)
 		}
@@ -82,6 +82,19 @@ func TestMySQLIntegration(t *testing.T) {
 		}
 	})
 	t.Run("settings and lists isolated", func(t *testing.T) {
+		hash := strings.Repeat("a", 64)
+		if err := s.LearnProfileAvatar(ctx, -100, 42, hash, "heiying.co"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.LearnProfileAvatar(ctx, -100, 43, hash, "heiying.co"); err != nil {
+			t.Fatal("sample insertion must be idempotent", err)
+		}
+		if d, err := s.ProfileAvatarDomain(ctx, -100, hash); err != nil || d != "heiying.co" {
+			t.Fatal(d, err)
+		}
+		if d, err := s.ProfileAvatarDomain(ctx, -200, hash); err != nil || d != "" {
+			t.Fatal("sample leaked across groups", d, err)
+		}
 		settings := domain.DefaultSettings()
 		settings.AIEnabled = true
 		if e := s.SaveSettings(ctx, -100, 42, settings); e != nil {

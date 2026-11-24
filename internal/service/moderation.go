@@ -57,6 +57,15 @@ func (s *Service) ModerateResult(ctx context.Context, update int64, m domain.Mes
 	if e != nil {
 		return store.Log{}, e
 	}
+	if !protected && kind != "black" {
+		if result, matched := s.automaticProfile(ctx, m.Chat.ID, m.From.ID, settings, n.FirstMessage); matched {
+			l, err := s.profileLog(ctx, m.Chat.ID, m.From.ID, m.ID, key, result)
+			if err != nil {
+				return store.Log{}, err
+			}
+			return l, s.applyModeration(ctx, m, l)
+		}
+	}
 	l := store.Log{EventKey: key, ChatID: n.ChatID, UserID: n.UserID, MessageID: n.MessageID, Text: m.ModerationText(), Risk: domain.Risk{Matches: []domain.Match{}}, Decision: domain.Decision{Action: "allow", Reason: "moderation_disabled"}, Source: "automatic"}
 	if settings.ModerationEnabled && !(protected && (settings.AdminBypass || kind == "white" || kind == "trusted")) {
 		engine := moderationEngine{violations: s.Store, spam: s.State}
@@ -181,7 +190,7 @@ func (s *Service) punishLocked(ctx context.Context, l store.Log, actor int64) (e
 	if protected && p.Decision.Action != "unmute" && p.Decision.Action != "unban" {
 		return s.Store.PunishmentStep(ctx, l.EventKey, "skipped")
 	}
-	if l.Source == "automatic" || l.Source == "manual" || l.Source == "review" {
+	if l.Source == "automatic" || l.Source == "manual" || l.Source == "review" || l.Source == "profile_guard" {
 		resolved, e := s.Store.NewerManualResolution(ctx, l.ChatID, l.UserID, p.CreatedAt)
 		if e != nil {
 			return e
@@ -191,6 +200,16 @@ func (s *Service) punishLocked(ctx context.Context, l store.Log, actor int64) (e
 		}
 	}
 	d := p.Decision
+	if l.Source == "profile_guard" && d.Action == "ban" && !p.Started {
+		// Recheck protection above, then persist the group-scoped list entry under
+		// the same member lock as the recoverable Telegram punishment.
+		if !u.Present() {
+			return s.Store.PunishmentStep(ctx, l.EventKey, "skipped")
+		}
+		if e = s.Store.SaveList(ctx, domain.ListEntry{ChatID: l.ChatID, UserID: l.UserID, Kind: "black", Reason: d.Reason}, actor, false); e != nil {
+			return e
+		}
+	}
 	stage = "action"
 	if d.Delete && d.Action != "ban" && !p.Deleted && l.MessageID > 0 {
 		if e = s.executor().Delete(ctx, l.ChatID, l.MessageID); e != nil {

@@ -49,6 +49,15 @@ func (s *Service) Join(ctx context.Context, chat domain.Chat, u domain.User) err
 	if kind == "black" {
 		return s.Punish(ctx, store.Log{EventKey: fmt.Sprintf("blackjoin:%d:%d:%d", chat.ID, u.ID, time.Now().Unix()/60), ChatID: chat.ID, UserID: u.ID, Decision: domain.Decision{Action: "ban", Reason: "blacklist"}, Source: "blacklist"}, 0)
 	}
+	if !protected {
+		if result, matched := s.automaticProfile(ctx, chat.ID, u.ID, settings, true); matched {
+			l, err := s.profileLog(ctx, chat.ID, u.ID, 0, fmt.Sprintf("profile-join:%d:%d:%d", chat.ID, u.ID, time.Now().Unix()/60), result)
+			if err != nil {
+				return err
+			}
+			return s.Punish(ctx, l, 0)
+		}
+	}
 	if protected || !settings.VerificationEnabled {
 		return s.welcomeOnly(ctx, chat, u, settings)
 	}
