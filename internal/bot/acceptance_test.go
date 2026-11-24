@@ -74,6 +74,7 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 	failNextWelcome := false
 	failVerificationNotice := ""
 	roles := map[int64]string{42: "administrator", 77: "member"}
+	profileBios := map[int64]string{}
 	tg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var in map[string]any
 		json.NewDecoder(r.Body).Decode(&in)
@@ -120,6 +121,11 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 			result = []any{map[string]any{"status": "administrator", "user": map[string]any{"id": 42}}}
 		case "getChat":
 			result = map[string]any{"id": in["chat_id"], "title": "Acceptance A", "type": "supergroup", "permissions": map[string]any{"can_send_messages": true}}
+			if id, ok := in["chat_id"].(float64); ok {
+				if bio, exists := profileBios[int64(id)]; exists {
+					result = map[string]any{"id": int64(id), "type": "private", "bio": bio}
+				}
+			}
 		case "sendMessage":
 			if failNextWelcome && strings.HasPrefix(fmt.Sprint(in["text"]), "验后欢迎") {
 				failNextWelcome = false
@@ -603,6 +609,8 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		}
 		for _, tc := range []struct{ command, section, label string }{{"rules", "rules", "审核规则"}, {"stats", "stats", "本群统计"}, {"keywords", "keywords", "关键词回复"}, {"whitelist", "white", "白名单"}, {"blacklist", "black", "黑名单"}} {
 			t.Run(tc.command, func(t *testing.T) {
+				// These are separate user workflows, not a burst/rate-limit test.
+				redis.FastForward(11 * time.Second)
 				handle(message("/"+tc.command+"@guardbot", 42))
 				out := lastSend()
 				text := fmt.Sprint(out["text"])
@@ -2104,6 +2112,67 @@ func TestAcceptanceCoreWorkflows(t *testing.T) {
 		}
 		if count("restrictChatMember") != before {
 			t.Fatal("expired self challenge released mute")
+		}
+	})
+	t.Run("profile preview cleanup join and messages preserve protections", func(t *testing.T) {
+		redis.FastForward(11 * time.Second)
+		old, err := db.Settings(ctx, chat.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.SaveSettings(ctx, chat.ID, 42, old)
+		if err := db.ChangeSettings(ctx, chat.ID, 42, func(v *domain.Settings) error {
+			v.ProfileGuardEnabled = true
+			v.ProfileBlockedDomains = []string{"heiying.co"}
+			v.ProfileAvatarMatch = false
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		mu.Lock()
+		for uid := int64(9910010); uid <= 9910015; uid++ {
+			profileBios[uid] = "黑鹰广告官方网站： heiying.co"
+			roles[uid] = "member"
+		}
+		roles[9910011] = "administrator"
+		roles[9910013] = "left"
+		mu.Unlock()
+		if err := db.SaveList(ctx, domain.ListEntry{ChatID: chat.ID, UserID: 9910012, Kind: "white"}, 42, false); err != nil {
+			t.Fatal(err)
+		}
+		before := count("banChatMember")
+		preview, err := svc.ProfileCheck(ctx, chat.ID, 9910010, false, false, 42)
+		if err != nil || !preview.Matched || preview.Applied || count("banChatMember") != before {
+			t.Fatal(preview, err)
+		}
+		if kind, err := db.ListStatus(ctx, chat.ID, 9910010, ""); err != nil || kind != "" {
+			t.Fatal("preview mutated blacklist", kind, err)
+		}
+		applied, err := svc.ProfileCheck(ctx, chat.ID, 9910010, true, false, 42)
+		if err != nil || !applied.Applied || count("banChatMember") != before+1 {
+			t.Fatal(applied, err)
+		}
+		if kind, err := db.ListStatus(ctx, chat.ID, 9910010, ""); err != nil || kind != "black" {
+			t.Fatal("missing blacklist", kind, err)
+		}
+		for _, uid := range []int64{9910011, 9910012, 9910013} {
+			result, err := svc.ProfileCheck(ctx, chat.ID, uid, true, false, 42)
+			if err != nil || result.Applied || count("banChatMember") != before+1 {
+				t.Fatal("protected or absent user was punished", result, err)
+			}
+		}
+		redis.FastForward(2 * time.Second)
+		if err := svc.Join(ctx, chat, domain.User{ID: 9910014}); err != nil {
+			t.Fatal(err)
+		}
+		handle(message("你好", 9910015))
+		if count("banChatMember") != before+3 {
+			t.Fatal("join/message profile guard did not ban")
+		}
+		for _, uid := range []int64{9910014, 9910015} {
+			if kind, err := db.ListStatus(ctx, chat.ID, uid, ""); err != nil || kind != "black" {
+				t.Fatal(uid, kind, err)
+			}
 		}
 	})
 }
